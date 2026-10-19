@@ -39,6 +39,12 @@ public sealed class ConsentDecisionViewModel : ObservableObject
     }
 }
 
+public sealed record VideoIdleHistoryItem(
+    VideoIdleOperationRecord Entry,
+    string StateLabel,
+    string Date,
+    string Summary);
+
 public sealed record OperationHistoryItem(
     OperationJournalEntry Entry,
     string Profile,
@@ -71,22 +77,31 @@ public sealed class ProfilesPageViewModel : ObservableObject
     private readonly OperationJournalCoordinator _journalCoordinator;
     private readonly JsonOperationJournalStore _journalStore;
     private readonly AdjustmentSimulationService _simulationService;
+    private readonly VideoIdleOperationService _videoIdleOperationService;
     private readonly ProfilePlanService _productProfilePlanner;
     private readonly ProfilePlanService _syntheticProfilePlanner;
     private OptimizerProfile _selectedProfile;
     private bool _includeSyntheticDemo;
     private bool _isRunning;
+    private bool _isVideoIdleBusy;
     private int _selectedSectionIndex;
     private string _statusMessage = "Nenhum ajuste real validado está disponível. A demonstração é opcional e sintética.";
     private string _historyStatusMessage = "A retomada é apenas avaliada; o app não reaplica nem reverte operações automaticamente.";
     private string? _simulationResult;
+    private VideoIdlePreview? _videoIdlePreview;
+    private string _videoIdleStatusMessage = "Prévia real não consultada. Nenhuma configuração será lida até você solicitar.";
+    private string _videoIdleResultLabel = "SEM RESULTADO REAL VERIFICADO";
     private IReadOnlyList<PlanReviewItem> _reviewItems = Array.Empty<PlanReviewItem>();
     private ProfilePlanResult? _currentPlan;
 
-    public ProfilesPageViewModel(OptimizerProfileCatalog profiles, AdjustmentCatalog adjustments)
+    public ProfilesPageViewModel(
+        OptimizerProfileCatalog profiles,
+        AdjustmentCatalog adjustments,
+        IVideoIdlePowerAdapter videoIdleAdapter)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentNullException.ThrowIfNull(adjustments);
+        ArgumentNullException.ThrowIfNull(videoIdleAdapter);
         _productCatalog = adjustments;
         ProfileOptions = Array.AsReadOnly(profiles.Profiles.ToArray());
         _selectedProfile = ProfileOptions.First(profile => profile.Id == "balanced");
@@ -106,26 +121,77 @@ public sealed class ProfilesPageViewModel : ObservableObject
             "CalixtoOptimizer",
             "History");
         _journalStore = new JsonOperationJournalStore(historyDirectory);
+        _videoIdleOperationService = new VideoIdleOperationService(
+            videoIdleAdapter,
+            new JsonVideoIdleOperationStore(Path.Combine(historyDirectory, "RealVideoIdle")));
 
         ConsentDecisions = [];
         History = [];
+        VideoIdleHistory = [];
         BuildPlanCommand = new RelayCommand(RebuildPlan);
         SimulateCommand = new AsyncRelayCommand(SimulateAsync, () => CanSimulate && !IsRunning);
         ReviewResumeCommand = new RelayCommand<OperationHistoryItem>(ReviewResume);
+        ReadVideoIdleCommand = new AsyncRelayCommand(ReadVideoIdlePreviewAsync, () => !IsVideoIdleBusy);
+        CaptureVideoIdleCommand = new AsyncRelayCommand(CaptureVideoIdleAsync, () => CanCaptureVideoIdle);
         RebuildPlan();
     }
 
     public IReadOnlyList<OptimizerProfile> ProfileOptions { get; }
     public ObservableCollection<ConsentDecisionViewModel> ConsentDecisions { get; }
     public ObservableCollection<OperationHistoryItem> History { get; }
+    public ObservableCollection<VideoIdleHistoryItem> VideoIdleHistory { get; }
     public RelayCommand BuildPlanCommand { get; }
     public AsyncRelayCommand SimulateCommand { get; }
     public RelayCommand<OperationHistoryItem> ReviewResumeCommand { get; }
+    public AsyncRelayCommand ReadVideoIdleCommand { get; }
+    public AsyncRelayCommand CaptureVideoIdleCommand { get; }
     public int ProductCatalogCount => _productCatalog.Definitions.Count;
     public string CatalogStatus => ProductCatalogCount == 0
         ? "Catálogo de produto vazio: não há ajustes reais validados para planejar ou aplicar."
         : $"{ProductCatalogCount} item(ns) descrito(s); disponibilidade precisa ser revisada individualmente.";
     public bool HasSyntheticDemo => _includeSyntheticDemo;
+    public bool HasVideoIdlePreview => VideoIdlePreview is not null;
+    public bool CanCaptureVideoIdle => HasVideoIdlePreview && !IsVideoIdleBusy;
+    public bool IsVideoIdleBusy
+    {
+        get => _isVideoIdleBusy;
+        private set
+        {
+            if (SetProperty(ref _isVideoIdleBusy, value))
+            {
+                OnPropertyChanged(nameof(CanCaptureVideoIdle));
+                ReadVideoIdleCommand.NotifyCanExecuteChanged();
+                CaptureVideoIdleCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+    public VideoIdlePreview? VideoIdlePreview
+    {
+        get => _videoIdlePreview;
+        private set
+        {
+            if (SetProperty(ref _videoIdlePreview, value))
+            {
+                OnPropertyChanged(nameof(HasVideoIdlePreview));
+                OnPropertyChanged(nameof(CanCaptureVideoIdle));
+                OnPropertyChanged(nameof(VideoIdlePreviewText));
+                CaptureVideoIdleCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+    public string VideoIdlePreviewText => VideoIdlePreview is null
+        ? "Ainda sem leitura do valor real."
+        : $"Plano ativo {VideoIdlePreview.ActiveSchemeId:D} · AC atual {VideoIdlePreview.CurrentAcTimeoutSeconds} s · proposta {VideoIdlePreview.ProposedAcTimeoutSeconds} s · leitura {VideoIdlePreview.ReadAtUtc.ToLocalTime():g}.";
+    public string VideoIdleStatusMessage
+    {
+        get => _videoIdleStatusMessage;
+        private set => SetProperty(ref _videoIdleStatusMessage, value);
+    }
+    public string VideoIdleResultLabel
+    {
+        get => _videoIdleResultLabel;
+        private set => SetProperty(ref _videoIdleResultLabel, value);
+    }
     public string PlanSourceLabel => HasSyntheticDemo
         ? "PLANO DE DEMONSTRAÇÃO · DADOS SINTÉTICOS"
         : "PLANO DO CATÁLOGO DE PRODUTO";
@@ -200,6 +266,23 @@ public sealed class ProfilesPageViewModel : ObservableObject
         try
         {
             var entries = await _journalStore.LoadAllAsync();
+            var videoIdleEntries = await _videoIdleOperationService.LoadHistoryAsync();
+            VideoIdleHistory.Clear();
+            foreach (var entry in videoIdleEntries)
+            {
+                VideoIdleHistory.Add(new VideoIdleHistoryItem(
+                    entry,
+                    GetVideoIdleStateLabel(entry.State),
+                    entry.CapturedAtUtc.ToLocalTime().ToString("g"),
+                    $"Plano {entry.ActiveSchemeId:D} · AC capturado {entry.PreviousAcTimeoutSeconds} s · proposta {entry.ProposedAcTimeoutSeconds} s. {entry.Detail}"));
+            }
+            if (videoIdleEntries.Count > 0)
+            {
+                var latest = videoIdleEntries[0];
+                VideoIdleResultLabel = latest.State is VideoIdleOperationState.Verified or VideoIdleOperationState.Reverted
+                    ? "HISTÓRICO: REGISTRO DIZ QUE A LEITURA POSTERIOR CONFIRMOU; ESTADO ATUAL NÃO RECHECADO"
+                    : "SEM RESULTADO REAL VERIFICADO";
+            }
             History.Clear();
             foreach (var entry in entries)
             {
@@ -226,6 +309,70 @@ public sealed class ProfilesPageViewModel : ObservableObject
         }
     }
 
+    private async Task ReadVideoIdlePreviewAsync()
+    {
+        if (IsVideoIdleBusy) return;
+        IsVideoIdleBusy = true;
+        try
+        {
+            var preview = await Task.Run(_videoIdleOperationService.ReadPreview);
+            VideoIdlePreview = preview;
+            VideoIdleStatusMessage = preview.AlreadyAtProposedValue
+                ? "Leitura real concluída: o valor AC já é 900 s. Nenhuma configuração foi alterada."
+                : "Leitura real concluída. A prévia não altera o Windows; a captura persistida consultará o estado novamente.";
+            VideoIdleResultLabel = "PRÉVIA REAL · SOMENTE LEITURA";
+        }
+        catch (Exception exception)
+        {
+            VideoIdleStatusMessage = $"Não foi possível ler VIDEOIDLE ({exception.GetType().Name}). Nenhuma escrita foi tentada.";
+            VideoIdleResultLabel = "LEITURA REAL INDISPONÍVEL";
+        }
+        finally
+        {
+            IsVideoIdleBusy = false;
+        }
+    }
+
+    private async Task CaptureVideoIdleAsync()
+    {
+        if (!CanCaptureVideoIdle) return;
+        IsVideoIdleBusy = true;
+        try
+        {
+            var record = await _videoIdleOperationService.CaptureAsync();
+            VideoIdlePreview = new VideoIdlePreview(
+                record.CapturedAtUtc,
+                record.ActiveSchemeId,
+                record.PreviousAcTimeoutSeconds,
+                record.ProposedAcTimeoutSeconds);
+            VideoIdleStatusMessage = $"Captura real persistida · operação {record.OperationId:D}. Nenhuma configuração foi alterada; isto não é backup do Windows.";
+            VideoIdleResultLabel = "CAPTURA REAL PERSISTIDA · NÃO APLICADA";
+            await LoadHistoryAsync();
+        }
+        catch (Exception exception)
+        {
+            VideoIdleStatusMessage = $"A captura não foi persistida ({exception.GetType().Name}); nenhuma alteração do Windows foi tentada.";
+            VideoIdleResultLabel = "CAPTURA NÃO CONFIRMADA";
+        }
+        finally
+        {
+            IsVideoIdleBusy = false;
+        }
+    }
+
+    private static string GetVideoIdleStateLabel(VideoIdleOperationState state) => state switch
+    {
+        VideoIdleOperationState.Captured => "CAPTURA REAL PERSISTIDA · NÃO APLICADA",
+        VideoIdleOperationState.MutationMayHaveStarted => "MUTAÇÃO PODE TER COMEÇADO · REVISÃO MANUAL",
+        VideoIdleOperationState.Verified => "HISTÓRICO: REGISTRO DIZ QUE A LEITURA POSTERIOR CONFIRMOU; ESTADO ATUAL NÃO RECHECADO",
+        VideoIdleOperationState.NoChangeRequired => "VALOR JÁ CONFIGURADO · SEM ESCRITA",
+        VideoIdleOperationState.Conflict => "CONFLITO · ESCRITA RECUSADA",
+        VideoIdleOperationState.MutationUnverified => "RESULTADO NÃO VERIFICADO · REVISÃO MANUAL",
+        VideoIdleOperationState.ReversionMayHaveStarted => "REVERSÃO PODE TER COMEÇADO · REVISÃO MANUAL",
+        VideoIdleOperationState.Reverted => "REVERSÃO VERIFICADA POR LEITURA POSTERIOR",
+        VideoIdleOperationState.ReversionUnverified => "REVERSÃO NÃO VERIFICADA · REVISÃO MANUAL",
+        _ => "ESTADO DESCONHECIDO · REVISÃO MANUAL"
+    };
     private void RebuildPlan()
     {
         var planner = IncludeSyntheticDemo ? _syntheticProfilePlanner : _productProfilePlanner;

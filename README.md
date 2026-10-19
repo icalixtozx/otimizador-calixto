@@ -1,34 +1,39 @@
 # Calixto Optimizer
 
-Aplicativo local para identificar hardware e drivers no Windows. O app inicia em diagnóstico somente leitura; não aplica ajustes, não instala drivers e não envia inventário pela rede.
+Aplicativo local de diagnóstico de hardware/drivers para Windows e laboratório técnico de ajustes. É experimental e não foi validado em outro computador. O app inicia em diagnóstico; nenhuma mudança é aplicada automaticamente.
 
-## Estado
+## Estado real
 
-- Inventário local do Windows, CPU, GPU, memória, placa-mãe, armazenamento e adaptadores físicos de rede.
-- Identificação de drivers por Win32_PnPSignedDriver, com busca, filtro de assinatura e códigos de problema Plug and Play quando o Windows os informa.
-- Exportação CSV sanitizada: IDs PnP internos não são exportados.
-- Interface em português com alto contraste preto e branco.
-- O Core contém um catálogo vazio, avaliação de compatibilidade, gerador de planos em simulação e políticas de perfil Leve, Equilibrado, Extremo e Personalizado.
-- A interface permite escolher Leve, Equilibrado, Extremo ou Personalizado, revisar o plano e consequências e registrar consentimento por item. O catálogo de produto segue vazio.
-- Há uma demonstração explicitamente sintética, desligada por padrão, que exercita simulação em memória e grava histórico local sem snapshots ou backups do Windows.
-- Histórico e avaliação conservadora de retomada estão conectados. Não existe executor real, instalação assistida de drivers nem integração de GPU confirmada.
-- ZIP autocontido experimental Windows x64 gerado localmente em `artifacts/`; os artefatos não são versionados nem anexados a uma Release. Não validado em outro computador.
-- O fonte do instalador Inno Setup está em `packaging/CalixtoOptimizer.iss`; o EXE de instalação não foi produzido porque ISCC.exe não está disponível neste ambiente. Ver `packaging/README-INSTALADOR.md`.
+- Inventário WMI de hardware/drivers e exportação CSV sanitizada continuam somente leitura.
+- Interface em português, alto contraste preto e branco.
+- Catálogo de desempenho para os perfis permanece sem ajustes habilitados. A demonstração sintética, separada e desligada por padrão, só exercita simulação em memória.
+- VIDEOIDLE é o primeiro adaptador técnico: leitura real e captura persistida sob clique explícito. A aplicação/reversão foram codificadas no Core, mas continuam bloqueadas por padrão e não estão expostas como ação no app.
+- A captura VIDEOIDLE é o índice AC do plano ativo, não inclui bateria/DC e não é backup do Windows. Histórico técnico fica separado da demonstração.
+- O pacote é v0.4.0 experimental, portátil autocontido Windows x64. Não validado em outro PC.
+- Script Inno Setup por usuário existe em `packaging/`; o EXE do instalador ainda não foi produzido enquanto `ISCC.exe` não estiver disponível.
 
-O inventário descreve o que o Windows reportou. Ele não verifica se há versões mais novas, não prova que um driver é adequado e não promete ganho de desempenho. Simulação não altera o Windows.
+Veja [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md) e [instruções do instalador](packaging/README-INSTALADOR.md).
+
+## Segurança e limitações
+
+Aplicar e reverter real exigem uma política habilitada e aprovação específica, vinculada à operação, ação, fingerprint da captura, consequência e frase de confirmação. O app distribui e injeta a política que sempre bloqueia. Aprovação da demonstração sintética nunca habilita escrita real.
+
+O mecanismo persiste uma intenção antes da primeira escrita, recusa conflitos observados e verifica por nova leitura. As APIs não oferecem operação transacional/comparação atômica, então uma mudança concorrente entre a última leitura e a chamada nativa ainda pode requerer revisão manual. A captura local não é autenticada nem protegida contra edição pelo mesmo usuário. Não existe worker elevado.
+
+Processos, Registro, políticas, rede, instalação assistida de drivers e integrações de GPU continuam indisponíveis. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
 
 ## Ambiente
 
-- Windows x64; alvo net10.0-windows.
-- SDK .NET 10.0.100 ou faixa de recursos .NET 10 mais recente (global.json).
-- A coleta usa WMI por meio do pacote Microsoft System.Management 10.0.12.
-- Para executar o build framework-dependent, é necessário o .NET 10 Desktop Runtime. O pacote portátil experimental inclui runtime e está em artifacts; ainda não foi testado em outro computador.
+- Windows 10+ x64 para o aplicativo distribuído; alvo `net10.0-windows`.
+- SDK .NET 10.0.100 ou faixa de recursos mais recente conforme `global.json`.
+- Inventário usa `System.Management 10.0.12`.
+- ZIP autocontido inclui runtime .NET; publicação e startup local não equivalem a teste de instalação nem validação em outro PC.
 
-Instale o SDK pelo canal oficial da Microsoft: [Instalar .NET no Windows](https://learn.microsoft.com/dotnet/core/install/windows). A documentação oficial descreve o suporte em [releases e suporte do .NET](https://learn.microsoft.com/dotnet/core/releases-and-support).
+Instale o SDK pelo canal oficial: [Instalar .NET no Windows](https://learn.microsoft.com/dotnet/core/install/windows). Consulte [releases e suporte do .NET](https://learn.microsoft.com/dotnet/core/releases-and-support).
 
-## Compilar, executar e conferir
+## Compilar, executar e testar
 
-Execute os comandos na raiz deste repositório:
+Na raiz do repositório:
 
 ~~~powershell
 dotnet restore .\CalixtoOptimizer.sln
@@ -37,18 +42,19 @@ dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --
 dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 ~~~
 
-O harness executa verificações do inventário/exportação, catálogo, compatibilidade, perfis, consentimento, diário, snapshots, recuperação e simulações de sucesso, falha, interrupção, corrupção, falha de gravação, espaço insuficiente, conflito e retomada. Ele não altera o Windows.
+O harness testa catálogo/perfis/consentimento/diário/simulação e o fluxo VIDEOIDLE usando somente adaptadores e storage falsos. Ele não chama as APIs reais de escrita do Windows e não comprova reversão real.
 
 ## Estrutura
 
 ~~~text
 src/Optimizer.App/          WPF, navegação e interface
-src/Optimizer.Core/         inventário, catálogo, planos, perfis e simulação
-src/Optimizer.Windows/      adaptadores de inventário Windows somente leitura
-tests/Optimizer.Core.Tests/ harness executável
-docs/                       arquitetura, limitações, validação e progresso
+src/Optimizer.Core/         inventário, catálogo, perfis e fluxo de operações
+src/Optimizer.Windows/      inventário WMI e adaptador PowrProf VIDEOIDLE
+tests/Optimizer.Core.Tests/ harness com falhas e adaptadores simulados
+docs/                       arquitetura, catálogo, recuperação e progresso
+packaging/                  fonte do Inno Setup e documentação
 ~~~
 
 ## Privacidade
 
-O app não possui conta, servidor ou telemetria remota. IDs de dispositivo ficam apenas em memória para correlacionar driver e dispositivo. A exportação CSV inclui nomes e metadados de drivers, mas omite esses IDs. Revise o CSV antes de compartilhá-lo.
+Não há conta, servidor ou telemetria remota. IDs PnP ficam em memória e não entram no CSV. Histórico técnico é gravado somente após captura explícita em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle`; contém apenas o GUID do plano, valores AC do ajuste, estado e timestamps. Revise qualquer arquivo antes de compartilhá-lo.

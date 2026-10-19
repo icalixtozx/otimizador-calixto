@@ -1,109 +1,62 @@
 # Progresso
 
 Última atualização: 2026-10-19
+Base preservada: `c231eab1d73391e969c5c7a5606c4195c316b1b5` (`feat: integrate simulated planning and history`). Alterações desta continuação ainda não foram commitadas nem enviadas.
 
-## Estado real
+## Resultado desta continuação
 
-- Repositório preservado em Downloads, branch `main`; alterações desta rodada permanecem locais até revisão final e commit.
-- Solução: Optimizer.Core, Optimizer.Windows, Optimizer.App (WPF) e harness executável Optimizer.Core.Tests.
-- SDK usado: .NET 10.0.402 portátil já existente na sessão de trabalho; não instalado no Windows. O `global.json` pede 10.0.100 com roll-forward de feature.
-- Validação final local: `dotnet build CalixtoOptimizer.sln -c Release` passou com 0 avisos e 0 erros; o harness passou 26/26; `git diff --check` passou.
-- O app continua iniciando em Visão geral/diagnóstico. A coleta de hardware e drivers é somente leitura.
-- Não há outro computador disponível; suporte cruzado continua pendente. Nenhum dado pessoal ou detalhe de hardware da sessão é registrado neste documento.
+- O inventário permanece somente leitura. App continua sem ação automática de energia e sem elevação.
+- Implementado um adaptador técnico real para `VIDEOIDLE` por `PowrProf.dll`: leitura do esquema ativo, leitura do índice AC, escrita AC, ativação do esquema e nova leitura. Os GUIDs são constantes documentadas; não interpretamos texto localizado de `powercfg`.
+- A UI apresenta demo sintética em seção distinta de prévia real. Prévia e captura real só são iniciadas por botões explícitos; a inicialização do app não consulta VIDEOIDLE.
+- A captura real persiste em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle`, separada do histórico sintético. Guarda somente o GUID do plano, valor AC anterior, alvo, estado, timestamp e fingerprint. Não inclui DC e não é backup do Windows.
+- O serviço Core implementa protocolo gated para aplicar 900 s, ler/confirmar, detectar conflito, guardar estado antes da escrita e reverter para o valor anterior somente se esquema/valor não mudaram. Estado ambíguo fica não verificado; sem rollback automático.
+- A política injetada pelo app é `BlockedVideoIdleMutationPolicy`, que sempre nega. A UI não tem comando de aplicação ou reversão. Testes usam policy habilitada apenas com fake in-memory.
+- Processo, Registro, políticas e rede têm candidatos e lacunas documentados em `docs/INITIAL-CATALOG.md`; permanecem indisponíveis.
+- Fonte do Inno Setup recebeu procedimento de instalação e verificação do compilador. `ISCC.exe` não existe no PATH nem nos caminhos comuns; ação do usuário será necessária para disponibilizá-lo.
 
-## Arquivos principais desta continuação
+## Arquivos alterados nesta etapa
 
-- Motor, consentimento e robustez: `src/Optimizer.Core/Adjustments/`, `src/Optimizer.Core/Consent/`, `src/Optimizer.Core/Profiles/` e `src/Optimizer.Core/Recovery/`.
-- UI: `src/Optimizer.App/ViewModels/MainWindowViewModel.cs`, `src/Optimizer.App/ViewModels/ProfilesPageViewModel.cs`, `src/Optimizer.App/Views/ProfilesPage.xaml`, `src/Optimizer.App/Views/ProfilesPage.xaml.cs`, `src/Optimizer.App/MainWindow.xaml`.
-- Testes simulados: `tests/Optimizer.Core.Tests/Program.cs`.
-- Proposta e distribuição: `docs/ADJUSTMENTS.md`, `packaging/CalixtoOptimizer.iss`, `packaging/README-INSTALADOR.md`, `packaging/README-PACOTE.txt`.
-- Estado/uso/recuperação: `README.md`, `docs/ARCHITECTURE.md`, `docs/RECOVERY.md`, `docs/PROGRESS.md`, `.gitignore`.
+- Core VIDEOIDLE: `src/Optimizer.Core/Adjustments/VideoIdleOperationModels.cs`, `JsonVideoIdleOperationStore.cs`, `VideoIdleOperationService.cs`.
+- API Windows: `src/Optimizer.Windows/WindowsVideoIdlePowerAdapter.cs`.
+- Interface: `src/Optimizer.App/ViewModels/MainWindowViewModel.cs`, `ProfilesPageViewModel.cs`, `src/Optimizer.App/Views/ProfilesPage.xaml`.
+- Robustez: `tests/Optimizer.Core.Tests/Program.cs`.
+- Documentação: `README.md`, `docs/ADJUSTMENTS.md`, `docs/INITIAL-CATALOG.md`, `docs/ARCHITECTURE.md`, `docs/RECOVERY.md`, `docs/PROGRESS.md`, `packaging/README-INSTALADOR.md`, `packaging/README-PACOTE.txt`.
+- Distribuição: `src/Optimizer.App/Optimizer.App.csproj`, `src/Optimizer.App/MainWindow.xaml`, `packaging/CalixtoOptimizer.iss` (versão `0.4.0-experimental`).
+- Artefatos ficam sob `artifacts/`, ignorados pelo Git.
 
-## Fase 1 — inventário somente leitura
+## Build e testes executados
 
-- [x] Modelos de computador e drivers e adaptadores WMI de leitura.
-- [x] Busca, filtro de assinatura e CSV sanitizado.
-- [x] Estados de carregamento, falha, vazio e dados parciais na interface.
-- [x] Saída real do inventário observada em validação anterior; detalhes específicos foram omitidos.
-- [ ] Confirmar independentemente a divergência de metadados do Windows observada antes.
-- [ ] Validar em outro computador.
+- Após modelos/serviço Core: `dotnet build .\CalixtoOptimizer.sln --configuration Release` — sucesso, 0 avisos, 0 erros.
+- Após adaptador PowrProf: mesmo build — sucesso, 0 avisos, 0 erros.
+- Após integração inicial e robustez: build Release — sucesso, 0 avisos, 0 erros; harness 34/34.
+- Após guards de corrida, proteção de estado AC/DC e falha no journal: build Release — sucesso, 0 avisos, 0 erros; harness **37/37**.
+- Testes incluem: captura persistida e bloqueio default; leitura-preview apenas com fake; apply/verify fake; reversão exata fake; conflito anterior e tardio; mudança do plano não reativa o plano antigo; falha ao persistir intenção evita escrita; interrupção após escrita falsa produz estado não verificado; falha na captura e fingerprint adulterado são recusados.
+- Não foi chamado `PowerGetActiveScheme`, `PowerReadACValueIndex`, `PowerWriteACValueIndex` nem `PowerSetActiveScheme` nesta máquina. A UI de prévia/captura real não foi clicada. Portanto, o adaptador nativo está compilado, mas sua operação real ainda não foi verificada.
+- Build do script Inno Setup: não executado, pois o compilador está ausente. Instalação/desinstalação também não testadas.
 
-## Fase 2 — catálogo, compatibilidade, plano e simulação
+## Pacote portátil
 
-- [x] Metadados tipados, validação de IDs, consequência, risco e arquitetura/build.
-- [x] Compatibilidade distingue simulável, bloqueado, incompatível, desconhecido e ID ausente.
-- [x] SHA-256 do plano vincula plataforma e metadados apresentados.
-- [x] Adaptador simulado em memória não chama APIs do Windows e informa `WindowsChanged=false`.
-- [x] Falhas e cancelamentos não são sucesso; etapas seguintes ficam não executadas.
-- [x] UI informa que o catálogo de produto está vazio; a fixture sintética está separada e explicitamente identificada.
-- **Limite:** não existe ajuste de produto habilitado nem executor real.
+- `artifacts/CalixtoOptimizer-0.4.0-experimental-win-x64.zip`
+- Tamanho: 65.433.198 bytes; 406 entradas.
+- SHA-256: `441DCACBABC2772874852003CE8679FB6B1B085F4E97714EB54F88CE3F49CB89`.
+- Publicação self-contained em `artifacts/release-v0.4.0-experimental/CalixtoOptimizer`.
+- ZIP verificado para conter `Optimizer.App.exe`, `Optimizer.App.runtimeconfig.json` e `README-PACOTE.txt`. Build/publish e checagem de conteúdo não são teste de instalação nem compatibilidade em outro PC.
+- Setup EXE **não produzido**. Script `.iss` ainda não compilado.
 
-## Fase 3 — perfis e interface de planos
+## Catálogo, suporte e limites
 
-- [x] Leve, Equilibrado, Extremo e Personalizado compõem propostas sujeitas a revisão.
-- [x] Leve sugere somente risco baixo; Equilibrado até moderado.
-- [x] Extremo e Personalizado usam somente escolha explícita; Extremo não seleciona tudo automaticamente.
-- [x] UI permite escolher perfil, incluir opcionalmente fixture sintética, gerar e revisar o plano.
-- [x] Aplicação real indisponível em todos os perfis.
-- **Limite:** catálogo de produto sem ajustes; a plataforma x64 exibida na demonstração é sintética e não comprova compatibilidade com o computador.
+- Energia: VIDEOIDLE é teste técnico, não otimização de desempenho. O valor AC e alvo exatos estão em `docs/ADJUSTMENTS.md`; DC permanece fora da interface de escrita.
+- Processos: sem candidato universal implementado; encerramento forçado indisponível.
+- Registro: nenhum caminho de tweak ou escrita.
+- Políticas: nenhuma mudança de GPO/MDM/Registro de política.
+- Rede: nenhum `netsh`, ajuste TCP ou mudança de interface.
+- Ganhos de FPS/latência não são alegados. Nenhum driver, registro, política, serviço, rede, energia ou firmware foi alterado para este trabalho.
+- Fingerprint da captura é verificação de consistência acidental, não assinatura contra alteração maliciosa da pasta local. Não pode autorizar worker privilegiado.
 
-## Fase 4 — consequência e consentimento
+## Pendências e próximo passo
 
-- [x] UI mostra consequência e exige checkbox por item antes de simular.
-- [x] Recibo liga decisão ao ID, versão, fingerprint e consequência.
-- [x] Plano antigo, recibo adulterado ou recusa não valida.
-- [x] Consentimento autoriza somente a demonstração em memória; não pode autorizar escrita no Windows.
-
-## Fase 5 — diário, histórico e retomada
-
-- [x] JSON por operação com escrita temporária, flush e substituição atômica.
-- [x] Interface consulta o histórico em `%LOCALAPPDATA%\CalixtoOptimizer\History` e mostra origem/estado.
-- [x] Origem sintética é marcada; a demonstração não cria snapshots.
-- [x] A UI informa que snapshots não são backup restaurável do Windows.
-- [x] Avaliação distingue estado ainda preparatório, conflito de fingerprint, término e revisão manual.
-- [x] Não existe reaplicação, restauração ou rollback automático.
-- **Limite:** sem provedor de snapshot real e sem executor real; registros demonstrativos só são gravados após ação explícita.
-
-## Fase 6 — testes simulados de robustez
-
-- [x] Sucesso, falha, cancelamento, etapas não executadas e ausência de mutação no simulador.
-- [x] Diário corrompido rejeitado.
-- [x] Falha de gravação e erro de disco cheio injetados; entrada previamente confirmada preservada.
-- [x] Interrupção de gravação injetada; entrada previamente confirmada preservada.
-- [x] Conflito de plano, consentimento duplicado e avaliação conservadora de retomada.
-- [x] Demonstração sintética não pode criar snapshots; o avaliador informa que nenhum backup do Windows foi feito.
-- Resultado atual: **26/26** verificações do harness, sem chamadas de configuração do Windows.
-- **Limite:** falha física de disco e encerramento abrupto real não foram provocados; são representados por injeção.
-
-## Fase 7 — candidato a ajuste real
-
-- [x] Uma proposta documentada em `docs/ADJUSTMENTS.md`: tela desligada após 900 segundos quando ligado à tomada.
-- [x] Fonte Microsoft, compatibilidade, consequência, estado a capturar, aplicação, verificação, reversão e conflitos documentados.
-- [ ] Implementar adaptador real: bloqueado até aprovação específica e validação por ambiente.
-- [ ] Executar alteração neste computador: não autorizado pela solicitação atual.
-
-## Fases 8–10 — outros módulos
-
-- [ ] Energia, Registro, políticas, processos e rede: indisponíveis; sem operações implementadas.
-- [ ] Instalação assistida de drivers: indisponível; permanece separada do inventário.
-- [ ] Integração de GPU: indisponível; nenhum suporte comprovado foi incluído.
-- Não há escrita em firmware, BIOS, tensão ou frequência; proteções não são desativadas.
-
-## Fases 11–12 — distribuição
-
-- [x] Publicação autocontida Windows x64 v0.3.0 experimental gerada em `artifacts/release-v0.3.0-experimental/CalixtoOptimizer`.
-- [x] ZIP `artifacts/CalixtoOptimizer-0.3.0-experimental-win-x64.zip`, 65,414,901 bytes, SHA-256 `758ADEF8FE855A28153FC00D7A3FEE81F0B7089635A07B13FF2BE4C3D0FA11A3`; contém 406 entradas, executável, runtime e LEIA-ME.
-- [x] Executável publicado abriu localmente com título “Calixto Optimizer” e encerrou com código 0 após o smoke check; isso não é teste de instalação.
-- [x] Fonte Inno Setup por usuário em `packaging/CalixtoOptimizer.iss`; usa `PrivilegesRequired=lowest`, sem worker privilegiado.
-- [x] Licença, disponibilidade e comando `ISCC.exe <arquivo.iss>` documentados em `packaging/README-INSTALADOR.md` com referências oficiais.
-- [ ] ISCC não está instalado no ambiente; EXE do instalador ainda não foi produzido.
-- [ ] Sintaxe Inno Setup ainda não passou pelo compilador; instalação/desinstalação não foram testadas.
-- [ ] Teste do instalador e pacote em outro computador.
-- **Segurança futura:** o caminho de instalação é gravável pelo usuário; nenhum worker elevado pode ser colocado ali. Um worker futuro exige desenho protegido e validação próprios.
-
-## Segurança e estado honesto
-
-- Nenhuma otimização, driver, Registro, política, serviço, energia, rede ou firmware foi alterado para este trabalho.
-- O app permanece em modo de diagnóstico por padrão; consentimento da demonstração não habilita ações reais.
-- A versão de distribuição será experimental e não validada em outro computador.
-- Não chamar o app de completo enquanto os módulos pendentes acima permanecerem indisponíveis.
+1. Usuário disponibiliza o Inno Setup oficial; conferir assinatura Authenticode/publisher, localizar `ISCC.exe`, compilar `.iss`, conferir o EXE/hash e depois testar instalar/desinstalar em VM/PC Windows limpa.
+2. Revisar as limitações do protocolo nativo de energia em equipamento Windows de teste controlado; ainda falta observar API/permissões, Modern Standby/overlays/OEM e conflitos. Obter aprovação específica antes de ligar qualquer interface de escrita; não executar no computador de desenvolvimento.
+3. Melhorar evento de operação real/auditoria autenticada antes de confiar em recuperação entre fronteiras de privilégio; o JSON local não tem autenticidade criptográfica.
+4. Implementar um módulo de diagnóstico somente leitura para energia (enumerar planos/valores) ou escolher, com fonte e teste reproduzível, um candidato de rede/processo. Não adicionar writes enquanto não houver item específico, mecanismo documentado e reversão validável.
+5. Testar instalação, UI e adaptador em outro PC quando houver disponibilidade. A versão continua experimental e não validada.

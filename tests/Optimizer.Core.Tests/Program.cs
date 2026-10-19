@@ -31,7 +31,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("custom profile uses only explicit selection", () => RunSync(CustomUsesOnlyExplicitSelection)),
     ("simulator records explicit in-memory simulation", SimulatorCompletesWithoutWindowsChanges),
     ("simulator stops after an adapter failure", SimulatorStopsAfterFailure),
-    ("simulator reports cancellation and leaves remaining items unrun", SimulatorReportsInterruption)
+    ("simulator reports cancellation and leaves remaining items unrun", SimulatorReportsInterruption),
+    ("VIDEOIDLE read preview and capture are persisted while real writes stay blocked by default", VideoIdleCaptureIsPersistedAndBlockedByDefault),
+    ("VIDEOIDLE test adapter persists apply intent and verifies readback", VideoIdleApplyPersistsIntentAndVerifiesReadback),
+    ("VIDEOIDLE application detects a state conflict before writing", VideoIdleApplyDetectsConflict),
+    ("VIDEOIDLE application detects drift after persisting intent", VideoIdleApplyDetectsConflictAfterArming),
+    ("VIDEOIDLE write does not reactivate a plan changed concurrently", VideoIdlePlanChangeAfterWriteDoesNotReactivateOldPlan),
+    ("VIDEOIDLE journal failure before write leaves Windows unchanged", VideoIdleApplyJournalFailureLeavesStateUntouched),
+    ("VIDEOIDLE reversal restores the exact captured value after verification", VideoIdleRevertRestoresExactCapturedValue),
+    ("VIDEOIDLE reversal refuses a changed setting", VideoIdleRevertIsConditional),
+    ("VIDEOIDLE interruption after the fake write is left unverified and recoverable", VideoIdleInterruptionLeavesManualRecoveryRecord),
+    ("VIDEOIDLE capture write failure is not reported as persisted", VideoIdleCaptureFailureIsNotReportedAsSaved),
+    ("VIDEOIDLE store rejects a tampered persisted capture", VideoIdleStoreRejectsTamperedCapture)
 };
 
 var failures = 0;
@@ -199,6 +210,199 @@ static async Task SimulatorReportsInterruption()
     Assert(!result.WindowsChanged, "interruption path must report no Windows changes");
 }
 
+static async Task VideoIdleCaptureIsPersistedAndBlockedByDefault()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store);
+        var preview = service.ReadPreview();
+        Assert(preview.CurrentAcTimeoutSeconds == 600 && preview.ProposedAcTimeoutSeconds == 900,
+            "preview must show the actual source value and documented proposal");
+        Assert(adapter.Writes.Count == 0, "preview must be read-only");
+
+        var capture = await service.CaptureAsync();
+        var loaded = await store.LoadAsync(capture.OperationId);
+        Assert(loaded?.State == VideoIdleOperationState.Captured, "capture must be persisted");
+        Assert(loaded!.PreviousAcTimeoutSeconds == 600 && loaded.ActiveSchemeId == adapter.SchemeId,
+            "capture must preserve exact AC value and active scheme");
+        Assert(adapter.Writes.Count == 0, "capture must not change Windows settings");
+
+        var approval = MakeVideoIdleApproval(capture, VideoIdleAction.Apply);
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(capture.OperationId, approval));
+        Assert(adapter.Writes.Count == 0, "default policy must block a real write even with an approval-shaped request");
+    });
+}
+
+static async Task VideoIdleApplyPersistsIntentAndVerifiesReadback()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        var applied = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        Assert(applied.State == VideoIdleOperationState.Verified, "readback must be explicitly verified");
+        Assert(adapter.Writes.SequenceEqual([900u]), "only the documented target AC value may be written");
+        Assert(adapter.Activations == 1, "active plan must be refreshed after writing the active plan setting");
+        Assert(adapter.DcTimeoutSeconds == 300, "battery-side value must remain untouched");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == VideoIdleOperationState.Verified,
+            "verified result must persist");
+    });
+}
+
+static async Task VideoIdleApplyDetectsConflict()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        adapter.AcTimeoutSeconds = 1200;
+        var result = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        Assert(result.State == VideoIdleOperationState.Conflict, "changed value must be detected before mutation");
+        Assert(adapter.Writes.Count == 0, "conflict must not write");
+    });
+}
+
+static async Task VideoIdleApplyDetectsConflictAfterArming()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        adapter.ChangeAcValueOnReadNumber = 3;
+        adapter.ChangedAcValue = 1200;
+        var result = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        Assert(result.State == VideoIdleOperationState.Conflict, "drift after intent persistence must be detected");
+        Assert(adapter.Writes.Count == 0, "late conflict must be detected before the write");
+    });
+}
+
+static async Task VideoIdlePlanChangeAfterWriteDoesNotReactivateOldPlan()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        adapter.ChangeActiveSchemeOnReadNumber = 4;
+        var result = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        Assert(result.State == VideoIdleOperationState.MutationUnverified,
+            "an observed plan switch after the setting write must be reported as ambiguous");
+        Assert(adapter.Activations == 0, "the old power plan must not be reactivated after a concurrent switch");
+    });
+}
+static async Task VideoIdleApplyJournalFailureLeavesStateUntouched()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var storage = new FaultInjectingJournalStorage();
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"), storage);
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        storage.NextWriteFailure = JournalWriteFailure.Io;
+        await AssertThrowsAsync<IOException>(() => service.ApplyAsync(
+            capture.OperationId,
+            MakeVideoIdleApproval(capture, VideoIdleAction.Apply)));
+        Assert(adapter.Writes.Count == 0, "failed recovery-boundary persistence must block the real write");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == VideoIdleOperationState.Captured,
+            "the last durable record must remain the capture");
+    });
+}
+static async Task VideoIdleRevertRestoresExactCapturedValue()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(627);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        _ = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        var reverted = await service.RevertAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Revert));
+        Assert(reverted.State == VideoIdleOperationState.Reverted, "readback must verify exact previous value");
+        Assert(adapter.AcTimeoutSeconds == 627 && adapter.Writes.SequenceEqual([900u, 627u]),
+            "reversal must restore the captured AC index exactly");
+        Assert(adapter.DcTimeoutSeconds == 300, "reversal must leave battery-side value untouched");
+    });
+}
+
+static async Task VideoIdleRevertIsConditional()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        _ = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        adapter.AcTimeoutSeconds = 1200;
+        var result = await service.RevertAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Revert));
+        Assert(result.State == VideoIdleOperationState.Conflict, "reversal must refuse a value changed by another actor");
+        Assert(adapter.Writes.SequenceEqual([900u]), "conflicted reversal must not write the old value");
+    });
+}
+
+static async Task VideoIdleInterruptionLeavesManualRecoveryRecord()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakeVideoIdlePowerAdapter(600) { ThrowOnNextActivation = true };
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"));
+        var service = new VideoIdleOperationService(adapter, store, new ConfirmedVideoIdleMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync();
+        var interrupted = await service.ApplyAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Apply));
+        Assert(interrupted.State == VideoIdleOperationState.MutationUnverified,
+            "an exception after the write must not be labeled successful");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == VideoIdleOperationState.MutationUnverified,
+            "ambiguous result must remain persisted for manual review");
+
+        var reverted = await service.RevertAsync(capture.OperationId, MakeVideoIdleApproval(capture, VideoIdleAction.Revert));
+        Assert(reverted.State == VideoIdleOperationState.Reverted && adapter.AcTimeoutSeconds == 600,
+            "a later explicitly authorized conditional reversal should verify the fake prior value");
+    });
+}
+
+static async Task VideoIdleCaptureFailureIsNotReportedAsSaved()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var storage = new FaultInjectingJournalStorage { NextWriteFailure = JournalWriteFailure.Io };
+        var adapter = new FakeVideoIdlePowerAdapter(600);
+        var store = new JsonVideoIdleOperationStore(Path.Combine(directory, "real-videoidle"), storage);
+        var service = new VideoIdleOperationService(adapter, store);
+        await AssertThrowsAsync<IOException>(() => service.CaptureAsync());
+        Assert((await store.LoadAllAsync()).Count == 0, "failed capture write must not appear as persisted history");
+        Assert(adapter.Writes.Count == 0, "capture persistence failure must never reach a Windows write");
+    });
+}
+
+static async Task VideoIdleStoreRejectsTamperedCapture()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var operationDirectory = Path.Combine(directory, "real-videoidle");
+        var store = new JsonVideoIdleOperationStore(operationDirectory);
+        var service = new VideoIdleOperationService(new FakeVideoIdlePowerAdapter(600), store);
+        var capture = await service.CaptureAsync();
+        var path = Path.Combine(operationDirectory, capture.OperationId.ToString("D") + ".json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+        node["PreviousAcTimeoutSeconds"] = 601;
+        await File.WriteAllTextAsync(path, node.ToJsonString());
+        await AssertThrowsAsync<InvalidDataException>(() => store.LoadAsync(capture.OperationId));
+    });
+}
+
+static VideoIdleApproval MakeVideoIdleApproval(VideoIdleOperationRecord record, VideoIdleAction action) =>
+    VideoIdleApproval.Confirm(record, action, consequenceAccepted: true,
+        VideoIdleApproval.RequiredPhrase(record.OperationId, action));
 static AdjustmentDefinition SampleAdjustment(string id, AdjustmentRiskLevel risk = AdjustmentRiskLevel.Low) =>
     new(
         id,
@@ -664,6 +868,48 @@ sealed class RecordingSimulatedAdapter(
     }
 }
 
+sealed class FakeVideoIdlePowerAdapter(uint initialSeconds) : IVideoIdlePowerAdapter
+{
+    public Guid SchemeId { get; } = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    public Guid ActiveSchemeId { get; set; } = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    public uint AcTimeoutSeconds { get; set; } = initialSeconds;
+    public uint DcTimeoutSeconds { get; set; } = 300;
+    public List<uint> Writes { get; } = [];
+    public int Activations { get; private set; }
+    public int ReadCount { get; private set; }
+    public int? ChangeAcValueOnReadNumber { get; set; }
+    public int? ChangeActiveSchemeOnReadNumber { get; set; }
+    public uint ChangedAcValue { get; set; }
+    public bool ThrowOnNextActivation { get; set; }
+
+    public VideoIdlePowerState ReadActiveAcTimeout()
+    {
+        ReadCount++;
+        if (ChangeAcValueOnReadNumber == ReadCount)
+            AcTimeoutSeconds = ChangedAcValue;
+        if (ChangeActiveSchemeOnReadNumber == ReadCount)
+            ActiveSchemeId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        return new VideoIdlePowerState(ActiveSchemeId, AcTimeoutSeconds);
+    }
+
+    public void WriteAcTimeout(Guid schemeId, uint seconds)
+    {
+        Writes.Add(seconds);
+        if (schemeId == ActiveSchemeId)
+            AcTimeoutSeconds = seconds;
+    }
+
+    public void ActivateScheme(Guid schemeId)
+    {
+        Activations++;
+        if (ThrowOnNextActivation)
+        {
+            ThrowOnNextActivation = false;
+            throw new IOException("Injected post-write interruption.");
+        }
+        ActiveSchemeId = schemeId;
+    }
+}
 enum JournalWriteFailure
 {
     None,

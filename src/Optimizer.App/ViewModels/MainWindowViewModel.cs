@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Optimizer.Core.Inventory;
 using Optimizer.Core.Adjustments;
 using Optimizer.Core.Profiles;
+using Optimizer.Windows;
 
 namespace Optimizer.App.ViewModels;
 
@@ -18,7 +19,10 @@ public sealed class MainWindowViewModel : ObservableObject
         _computerInventoryService = computerInventoryService;
         Overview = new OverviewPageViewModel();
         Drivers = new DriversPageViewModel(driverInventoryService);
-        Profiles = new ProfilesPageViewModel(OptimizerProfileCatalog.CreateDefault(), new AdjustmentCatalog([]));
+        Profiles = new ProfilesPageViewModel(
+            OptimizerProfileCatalog.CreateDefault(),
+            new AdjustmentCatalog([]),
+            new WindowsVideoIdlePowerAdapter());
         _currentPage = Overview;
         NavigationItems =
         [

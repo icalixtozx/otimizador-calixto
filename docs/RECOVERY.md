@@ -1,19 +1,21 @@
 # Recuperação
 
-## Aplicativo atual
+## Estado do aplicativo
 
-O app inicializa em diagnóstico somente leitura. Nenhuma configuração do Windows é modificada, então encerrar ou remover esta versão não exige restaurar configurações.
+O app inicia em diagnóstico; não lê VIDEOIDLE até o usuário pedir, não aplica nem restaura configurações automaticamente. A UI atual não expõe escrita real. A demonstração sintética persiste seu histórico em LocalAppData, separado das capturas técnicas reais.
 
-## Infraestrutura no Core
+## Captura técnica VIDEOIDLE
 
-O Core contém um diário JSON separado por operação, salvamento por arquivo temporário e substituição no mesmo diretório, consentimento associado ao plano e modelos para snapshots. Testes exercitam essa persistência em uma pasta temporária.
+A captura sob demanda consulta o plano ativo e o índice AC exato de `VIDEOIDLE` e grava um registro mínimo em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle`. Esse registro não é backup nem snapshot restaurável do Windows. Ele não contém o índice DC/bateria.
 
-O diário pode classificar uma operação potencialmente real como snapshot disponível para revisão manual ou snapshot ausente. A avaliação de retomada diferencia preparação ainda não iniciada, conflito de plano, operação terminada e estado que exige revisão manual. Ela nunca reaplica nem reverte automaticamente.
+O serviço de escrita (não habilitado no app) persiste a intenção antes de alterar. `MutationMayHaveStarted`, `MutationUnverified`, estados de conflito e interrupção não são sucesso e não disparam rollback automático. A reversão codificada pede uma aprovação específica separada e somente tenta restaurar se o plano ativo ainda for o capturado e o valor atual ainda for exatamente o proposto. Verifica o valor restaurado com leitura posterior. Caso haja conflito, revisão manual.
 
-O histórico está ligado à interface. O usuário pode executar uma demonstração sintética explícita, que persiste apenas o plano, consentimento e resultado do simulador em memória. Esse registro não contém snapshots e não é backup do Windows. Não há provedor que leia configurações reais do sistema, executor, rollback ou recuperação automática. Testes de corrupção, falha de escrita, disco cheio, interrupção e conflito usam dados temporários e falhas injetadas.
+As chamadas Win32 não formam uma transação com comparação atômica. Outra mudança entre a última leitura e a escrita/ativação pode criar um estado ambíguo; nessa situação o app deve interromper e solicitar revisão. Se o plano foi trocado, o app não reativa o plano antigo para tentar recuperar. A alteração em plano inativo, se houver corrida, exige revisão pela interface de energia ou `powercfg`.
 
-## Requisitos antes de qualquer ajuste real
+O arquivo do diário fica na pasta do próprio usuário e pode ser editado/removido por esse usuário. O fingerprint detecta corrupção acidental, não prova autenticidade. Não use o estado do diário como autorização para um worker elevado; nenhum worker desse tipo existe nesta versão.
 
-Cada ajuste futuro precisa de captura allowlist do estado anterior, persistida e associada à versão exata do ajuste; consentimento explícito por consequência; verificação do resultado; conflito detectado; e estratégia de reversão documentada. Snapshots devem conter somente os valores necessários, sem identificadores ou segredos desnecessários.
+## Evidência de testes
 
-Instalação/remoção de drivers, limpeza, firmware, tensão, frequência e outros efeitos externos não podem prometer rollback completo. Qualquer reversão real exigirá implementação e validação próprias; o avaliador atual só sinaliza revisão manual e não executa comandos de restauração.
+Os testes exercitam sucesso, falha, estado divergente, conflito tardio, falha ao persistir o ponto de recuperação, interrupção após escrita falsa, verificação e reversão condicional com adaptador em memória. Esses testes não provam que a API real funciona, que o privilégio seja suficiente, nem que uma reversão real tenha ocorrido. Não foi realizada alteração no computador de desenvolvimento.
+
+A demonstração sintética não cria capturas reais. Seus estados e capturas não podem ser usados para restaurar configurações.

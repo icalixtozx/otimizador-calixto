@@ -1,42 +1,34 @@
-# Catálogo e motor de ajustes
+# VIDEOIDLE: teste técnico do motor real
 
-## Estado atual
+## Estado
 
-O motor e os modelos de catálogo estão implementados em Optimizer.Core/Adjustments. **O catálogo de produto continua vazio**: não há ajuste real habilitado nem adaptador que altere o Windows. Fixtures sintéticas existem somente no harness de testes.
+O primeiro adaptador real está implementado para o valor `VIDEOIDLE` no lado AC do plano ativo, com alvo proposto de **900 segundos**. O app permite, somente após ação explícita, ler o valor real e salvar uma captura técnica separada no histórico `RealVideoIdle`. Não faz essa leitura automaticamente na inicialização.
 
-O simulador padrão é um adaptador em memória sem acesso a APIs do Windows ou armazenamento persistente. O resultado chama cada passo de “simulado” e informa explicitamente que nenhuma alteração ocorreu. Falha ou cancelamento encerra o fluxo, identifica o passo afetado e marca os passos seguintes como não executados.
+O app não oferece caminho de escrita: aplicar/reverter estão bloqueados pela política `BlockedVideoIdleMutationPolicy` (nega sempre), e não existe comando/botão habilitado para isso. O serviço Core implementa o fluxo de aplicação, leitura posterior, detecção de conflito e reversão condicional para permitir testes com adaptador falso e futura validação. A implementação não foi executada nesta máquina.
 
-## Metadados e compatibilidade
+A consulta do GUID do plano e do índice AC usa APIs PowrProf com GUIDs fixos, sem interpretar saída de `powercfg` localizada. A escrita só toca `PowerWriteACValueIndex` no lado AC; o lado DC e outros valores não são enviados ao adaptador. A API documenta que a escrita de um plano ativo precisa de `PowerSetActiveScheme` para entrar em vigor. Fontes e compatibilidade estão em [Microsoft: VIDEOIDLE](https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/display-settings-display-idle-timeout), [PowerReadACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powerreadacvalueindex), [PowerWriteACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powerwriteacvalueindex) e [PowerSetActiveScheme](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powersetactivescheme).
 
-Cada definição contém ID e versão, descrição, área, nível de risco, consequência, exigência de administrador, arquiteturas e build mínimo declarados e disponibilidade. A disponibilidade só pode ser SimulationOnly ou BlockedExperimental; não existe estado que habilite execução real.
+## Fluxo implementado
 
-A compatibilidade compara o Windows, a arquitetura e, quando informado, o build mínimo. Um resultado compatível permite apenas simulação. Arquitetura/build ausente é desconhecido; fora dos limites é incompatível; itens experimentais explicitamente bloqueados não entram na simulação.
+1. **Prévia real:** leitura sob demanda do GUID de plano ativo e índice AC atual, sem escrita.
+2. **Captura persistida:** segunda leitura do estado, gravada atomicamente em `LocalAppData\CalixtoOptimizer\History\RealVideoIdle`. O registro guarda esquema, valor anterior, alvo, data, estado e fingerprint dos valores da captura. É uma captura mínima de configuração, não backup do Windows.
+3. **Aplicação codificada, bloqueada na aplicação:** requer política habilitada e aprovação ligada ao ID, ação, fingerprint, consequência aceita e frase `APPLY VIDEOIDLE XXXXXXXX`. Compara o estado antes da escrita, persiste a intenção antes de chamar a API, confere novamente antes de escrever, altera somente o índice AC para 900, reativa o mesmo GUID do plano e lê o valor de volta. Divergência/falha fica não verificada, nunca é sucesso.
+4. **Conflito:** plano ativo ou valor AC diferentes da captura recusam a escrita. Uma nova leitura após persistir a intenção estreita a janela de corrida. As APIs não oferecem compare-and-swap: uma mudança concorrente entre a última leitura e a chamada nativa ainda é possível; resultado ambíguo exige revisão manual.
+5. **Reversão codificada, bloqueada na aplicação:** requer política habilitada e aprovação separada ligada à ação e frase `REVERT VIDEOIDLE XXXXXXXX`. Só prossegue se o plano capturado continuar ativo e o índice atual ainda for 900. Grava exatamente o índice AC capturado, reativa o mesmo plano e confirma em nova leitura. Se o plano/valor mudou, recusa a reversão.
+6. **Falha/interrupção:** o diário persiste `MutationMayHaveStarted`/`ReversionMayHaveStarted` antes da escrita. Exceção depois disso vira estado não verificado, com orientação de revisão manual; nunca é marcada como revertida.
 
-Essas verificações descrevem metadados fornecidos pelo catálogo; não provam compatibilidade com uma GPU, driver, firmware ou configuração específica.
+## Consentimento e política
 
-## Planos
+Consentimento da demonstração sintética não autoriza esse ajuste. A política usada pelo app para mutações reais é `BlockedVideoIdleMutationPolicy`, que sempre nega. O serviço de aplicação não está exposto na UI. Os testes ativam uma política isolada em memória apenas para exercitar o fluxo no adaptador falso. Não existe aprovação real da usuária/usuário registrada e não ocorreu escrita no Windows.
 
-O gerador de planos preserva a consequência e o risco, distingue itens prontos para simulação, incompatíveis, bloqueados e IDs desconhecidos, e calcula uma impressão digital SHA-256 do conteúdo selecionado e da plataforma. Um plano pode ser simulado somente quando todos os itens são conhecidos e compatíveis.
+## Limites
 
-CanApply permanece sempre falso nesta versão. A impressão digital vincula plataforma, IDs e versões, estado, risco, consequência e metadados apresentados. A interface oferece seleção do perfil, revisão do plano e consentimento individual somente para a demonstração sintética. Nenhum recibo autoriza aplicação real.
+- APIs disponíveis desde Windows Vista desktop; pacote atual é Windows 10+ x64/.NET 10. Compatibilidade de OEM, políticas, Modern Standby, overlays, permissões e efeito real do display ainda não foi testada em outro PC.
+- Não inferimos que leitura bem-sucedida prove que o fabricante implementa o comportamento físico esperado.
+- O fingerprint detecta divergência acidental do conteúdo capturado; não é assinatura nem proteção contra edição maliciosa do arquivo local.
+- Uma captura local pode ser editada/apagada pelo mesmo usuário. Não existe worker elevado e o diário não é fonte confiável para atravessar fronteira de privilégio.
+- Uma reversão simulada pelo fake verifica o algoritmo, não comprova reversão no Windows.
 
-## Exclusões deliberadas
+## Catálogo restante
 
-Não há alterações genéricas de Registro ou políticas, comandos PowerShell, desativação de proteções ou serviços, prioridade Tempo real, limpeza de RAM, ajustes em massa de rede, instalação de drivers, mudanças de GPU, tensão, frequência, BIOS ou firmware. Não se afirmam ganhos de desempenho.
-
-O Core contém diário JSON, transições que exigem consentimento e snapshots para cada item antes de armar uma operação e avaliação de recuperação manual. A interface lê o histórico local e identifica a origem dos registros. Demonstrações sintéticas não aceitam snapshots. Os snapshots dos testes não são backups do Windows, e recuperação automática não existe.
-
-## Proposta única para validação futura — tempo de desligamento da tela na tomada
-
-**Estado: proposta documentada, sem código de aplicação real e sem execução.** A interface não lista este ajuste como disponível. Exige aprovação específica antes de qualquer implementação real ou execução.
-
-- **Configuração exata:** mudar somente `Display > Turn off display after` para o lado AC do plano ativo, valor exato `900` segundos (15 minutos). O índice DC/bateria e as demais configurações do plano permanecem intocados. Se o valor atual já for 900 segundos, a operação seria no-op. A Microsoft identifica a configuração pelo alias `VIDEOIDLE`, GUID `3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e`, com valores em segundos e suporte desde Windows Vista.
-- **Fonte oficial e comandos:** a captura/consulta pode usar `powercfg /getactivescheme` e `powercfg /query <GUID-do-plano>`. A aplicação equivalente documentada usa `powercfg /setacvalueindex <GUID-do-plano> <7516b95f-f776-4464-8c53-06167f40cc99> <3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e> 900`; a Microsoft informa que uma escrita no plano ativo precisa ser seguida por `PowerSetActiveScheme`. O `powercfg /change monitor-timeout-ac 15` é outro comando documentado, com argumento em minutos, mas para reversão precisa-se preservar o índice exato em segundos. [Display idle timeout](https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/display-settings-display-idle-timeout), [Powercfg command-line options](https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/powercfg-command-line-options), [PowerWriteACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powerwriteacvalueindex), [PowerSetActiveScheme](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powersetactivescheme).
-- **Compatibilidade:** configuração/API documentada para Windows Vista desktop ou posterior; o app distribuído aqui é Windows 10+ x64 por depender do .NET 10. O ajuste depende de um plano ativo e da exposição da configuração. Compatibilidade com Modern Standby, overlays, política corporativa, OEM, permissões e comportamento em cada edição ainda precisa ser validada por ambiente; nada disso será inferido do modelo de hardware.
-- **Consequência:** a tela pode permanecer ligada por mais tempo quando o computador está na tomada, consumindo mais energia durante períodos ociosos. Não altera bateria/DC, CPU, GPU, rede, serviços, proteções ou firmware. Não há ganho de desempenho alegado.
-- **Captura anterior:** obter o GUID do plano ativo e consultar o plano por `PowerGetActiveScheme`/`PowerReadACValueIndex` (ou pelos comandos de leitura acima). Registrar GUID do esquema, subgrupo Display, GUID da configuração e o índice AC original exato. Isto é um dado de reversão de uma configuração, não um backup do Windows.
-- **Aplicação futura:** depois de verificar que plano e índice ainda correspondem à captura, chamar `PowerWriteACValueIndex` para escrever 900; chamar `PowerSetActiveScheme` com o mesmo GUID para efetivar; conferir com `PowerReadACValueIndex` que o índice AC é 900. A implementação deverá verificar códigos de retorno e recusar divergências. A exigência de elevação ainda precisa ser provada em ambiente de teste; não será presumida.
-- **Reversão futura:** somente se o plano ativo continuar sendo o capturado e o índice AC ainda for 900, restaurar o índice AC original exato e chamar `PowerSetActiveScheme` para aplicar. Verificar o valor restaurado. Se um usuário ou outro agente tiver mudado o plano/valor, o app deve recusar reversão automática e pedir revisão manual. Fonte da leitura: [PowerReadACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powerreadacvalueindex).
-- **Conflitos e recuperação:** plano removido, alternado ou administrado por política; OEM que reescreve o tempo; mudança manual concorrente; sleep/Modern Standby ou interface que represente o ajuste em overlay podem impedir uma restauração segura. Não haverá recuperação automática se a captura estiver ausente, incompleta ou conflitar. Um journal sintético não representa captura real.
-
-Esta proposta não foi implementada como operação real. Os testes atuais usam storage e adaptadores injetáveis; não chamam `powercfg`, `PowerWriteACValueIndex` ou `PowerSetActiveScheme`.
+Veja [Catálogo inicial de candidatos](INITIAL-CATALOG.md). Processos, Registro, políticas e rede permanecem indisponíveis, sem escrita nem alegação de ganho universal.

@@ -1,9 +1,16 @@
-Calixto Optimizer 0.3.0 experimental
-Windows x64. Nao validado em outro computador.
+Calixto Optimizer 0.4.0 experimental
+Windows x64. Experimental e nao validado em outro computador.
 
 O aplicativo inicia em diagnostico. Nenhuma alteracao do Windows e aplicada automaticamente.
-Catalogo de ajustes reais validado: vazio. A demonstracao opcional usa somente dados sinteticos.
-O historico e local do aplicativo. Demonstracoes sinteticas nao criam snapshots nem backups do Windows.
+
+Estados visiveis:
+- Demonstracao sintetica: dados artificiais; nao e ajuste nem backup do Windows.
+- Previa real VIDEOIDLE: leitura sob demanda do plano ativo e valor AC.
+- Captura tecnica real: persistencia do valor AC original, separada da demonstracao; nao e backup restauravel.
+- Execucao real: bloqueada no aplicativo por padrao.
+- Resultado verificado: somente um status apos leitura posterior no fluxo real; testes com fake nao contam como resultado do Windows.
+
+A demonstracao opcional usa apenas dados sinteticos. Energia VIDEOIDLE esta implementado como teste tecnico: captura/leitura real disponivel pelo botao; aplicar e reverter continuam bloqueados. Processos, Registro, politicas e rede permanecem indisponiveis.
 
 Distribuicao portatil:
 1. Extraia o ZIP completo.
@@ -16,8 +23,7 @@ Instalador por usuario:
 - O instalador nao inicia o aplicativo automaticamente.
 - A pasta de instalacao e gravavel pelo usuario. Nenhum worker elevado esta incluido.
 - O historico em LocalAppData\CalixtoOptimizer fica separado e e mantido ao desinstalar.
-- O EXE do instalador nao esta incluido neste ZIP; o fonte Inno Setup e as instrucoes ficam no repositorio.
-- O EXE do instalador nao foi produzido: ISCC.exe nao esta instalado neste ambiente.
-- Sintaxe nao compilada e instalacao nao testada; nao trate o script como instalador validado.
+- O EXE do instalador nao esta incluido neste ZIP; o script e as instrucoes ficam no repositorio.
+- Instalacao, desinstalacao e compilacao do script ainda precisam ser testadas.
 
 Nenhum ajuste, driver, Registro, politica, servico, rede, energia ou firmware foi alterado para gerar o pacote.

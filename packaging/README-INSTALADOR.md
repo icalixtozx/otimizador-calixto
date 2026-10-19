@@ -1,37 +1,59 @@
 # Instalador experimental
 
-O fonte `CalixtoOptimizer.iss` empacota a publicação autocontida Windows x64 de `artifacts/release-v0.3.0-experimental/CalixtoOptimizer`.
+`CalixtoOptimizer.iss` empacota a publicação autocontida Windows x64 v0.4.0-experimental de `artifacts/release-v0.4.0-experimental/CalixtoOptimizer`.
 
-## Compilação
+## Procedimento de compilação
 
-No PowerShell, a partir da raiz do repositório, depois de instalar Inno Setup:
+Na raiz do repositório, após disponibilizar o compilador Inno Setup:
 
 ```powershell
-dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.3.0-experimental\CalixtoOptimizer
+dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.4.0-experimental\CalixtoOptimizer
 ISCC.exe .\packaging\CalixtoOptimizer.iss
 ```
 
-O script direciona a saída para `artifacts/installer/CalixtoOptimizer-0.3.0-experimental-win-x64-setup.exe`. O compilador oficial aceita `ISCC.exe <arquivo.iss>` e retorna código zero quando a compilação termina sem erro; consultar a documentação oficial antes de mudar opções.
+O EXE esperado será `artifacts/installer/CalixtoOptimizer-0.4.0-experimental-win-x64-setup.exe`. Confirme existência, tamanho, hash e código de saída 0 do `ISCC.exe`. Ainda será necessário testar instalação e desinstalação em uma VM/PC Windows limpa; a compilação do `.iss` não é teste de instalação.
 
-## Privilégios e limites
+## Disponibilizar o Inno Setup
 
-- `PrivilegesRequired=lowest` instala sem elevação em `%LOCALAPPDATA%\Programs\CalixtoOptimizer`.
-- O assistente usa as mensagens oficiais de Português Brasileiro do Inno Setup.
-- O instalador não inicia o app e não instala serviço, tarefa privilegiada ou worker.
-- A pasta do app é modificável pelo usuário. Um futuro worker elevado não pode ser colocado nela. Esse componente exigiria uma arquitetura protegida, com instalação/ACL adequadas e protocolo autenticado entre processos.
-- O histórico permanece em `%LOCALAPPDATA%\CalixtoOptimizer\History`; a desinstalação do app não o apaga.
-- A compilação do script e a instalação/desinstalação precisam ser verificadas quando `ISCC.exe` estiver disponível. Nenhum teste de instalação foi realizado nesta entrega.
+O fornecedor oficial lista Inno Setup 7.1.0 e orienta instalação interativa por WinGet com:
 
-## Disponibilidade e licença do Inno Setup
+```powershell
+winget install --id JRSoftware.InnoSetup.7 -e -s winget -i
+```
 
-Na consulta de 2026-10-19, a página oficial lista Inno Setup 7.1.0 e 6.7.3. O compilador não foi encontrado no `PATH` nem nos caminhos comuns de instalação deste ambiente; portanto, o EXE de setup ainda não foi produzido.
+Como alternativa, baixe pelo [site oficial](https://jrsoftware.org/isdl.php). O fornecedor informa que o instalador publicado tem assinatura Authenticode; abra Propriedades → Assinaturas Digitais e confirme a assinatura válida e o publicador `Pyrsys B.V.` antes de usar. Não baixe `ISCC.exe` de sites de terceiros.
 
-O projeto Inno Setup é open source. O fornecedor pede que usuários comerciais comprem uma licença; a própria FAQ diz que quem ainda está em etapa inicial não precisa comprar antes de o instalador estar pronto para produção. O uso futuro comercial deve seguir a licença vigente do fornecedor. Esta nota não constitui análise jurídica.
+Depois da instalação, confira o caminho:
+
+```powershell
+Get-Command ISCC.exe
+Test-Path "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+```
+
+Se o diretório não estiver no `PATH`, invoque diretamente:
+
+```powershell
+& "$env:ProgramFiles\Inno Setup 7\ISCC.exe" .\packaging\CalixtoOptimizer.iss
+```
+
+A página oficial descreve `ISCC.exe <arquivo.iss>`; código 0 indica compilação bem-sucedida, 1 erro de argumento/fatal e 2 falha de compilação.
+
+## Procedência, licença e privilégios
+
+Inno Setup é publicado por Jordan Russell/Martijn Laan, é open source e tem código-fonte ligado pelo fornecedor ao GitHub oficial. A página do fornecedor pede licença comercial para usuários comerciais; sua FAQ diz que não é esperado comprá-la antes de o instalador estar pronto para produção. Confira e cumpra os termos comerciais vigentes antes de distribuir comercialmente. Esta nota não é parecer jurídico.
+
+- `PrivilegesRequired=lowest` instala sem UAC em `%LOCALAPPDATA%\Programs\CalixtoOptimizer`.
+- O assistente usa mensagens oficiais de Português Brasileiro.
+- O instalador não inicia o app nem instala serviço, tarefa privilegiada ou worker.
+- A pasta do app é gravável pelo usuário. Um futuro worker elevado não pode ser colocado ali; exigiria localização protegida, ACL adequada e protocolo autenticado.
+- Histórico permanece em `%LOCALAPPDATA%\CalixtoOptimizer\History`; desinstalação não o apaga.
+- No ambiente atual, `ISCC.exe` não foi encontrado. Portanto, o EXE ainda não foi produzido e o script ainda não passou pelo compilador. Instalação e desinstalação não foram testadas.
 
 Fontes oficiais:
 
-- [Downloads do Inno Setup](https://jrsoftware.org/isdl.php)
-- [Licenças comerciais e uso em etapa inicial](https://jrsoftware.org/isorder.php)
-- [Compilador de linha de comando ISCC](https://jrsoftware.org/ishelp/topic_compilercmdline.htm)
+- [Downloads e verificação de autenticidade](https://jrsoftware.org/isdl.php)
+- [Verificar downloads](https://jrsoftware.org/isdl-verify.php)
+- [Licenças comerciais e estágio inicial](https://jrsoftware.org/isorder.php)
+- [Compilador ISCC e códigos de saída](https://jrsoftware.org/ishelp/topic_compilercmdline.htm)
 - [Instalação não administrativa](https://jrsoftware.org/ishelp/topic_admininstallmode.htm)
 - [Privilégios requeridos](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm)

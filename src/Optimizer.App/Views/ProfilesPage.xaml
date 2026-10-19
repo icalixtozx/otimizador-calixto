@@ -24,6 +24,35 @@
               </StackPanel>
             </Border>
 
+            <Border Background="#F2F2F0" BorderBrush="#D7D7D3" BorderThickness="1" CornerRadius="12"
+                    Padding="18" Margin="0,0,0,14">
+              <StackPanel>
+                <TextBlock Text="LABORATÓRIO TÉCNICO · ENERGIA" FontSize="9" FontWeight="Bold" Foreground="#555555" />
+                <TextBlock Text="VIDEOIDLE · tempo para desligar a tela" FontSize="15" FontWeight="Bold" Margin="0,5,0,0" />
+                <TextBlock Text="A prévia lê o plano ativo e o valor AC diretamente pelas APIs de energia do Windows. A captura grava somente o valor anterior necessário para uma futura reversão; não é um backup do Windows."
+                           FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,10" />
+                <WrapPanel>
+                  <Button Content="Ler estado real (somente leitura)" Command="{Binding ReadVideoIdleCommand}"
+                          Style="{StaticResource SecondaryButton}" Margin="0,0,8,7" />
+                  <Button Content="Capturar estado real no histórico" Command="{Binding CaptureVideoIdleCommand}"
+                          IsEnabled="{Binding CanCaptureVideoIdle}" Style="{StaticResource SecondaryButton}" Margin="0,0,8,7" />
+                  <Button Content="Aplicar 900 s · bloqueado" IsEnabled="False"
+                          Style="{StaticResource PrimaryButton}" Margin="0,0,0,7" />
+                </WrapPanel>
+                <Border Background="White" CornerRadius="8" Padding="11" Margin="0,3,0,0">
+                  <StackPanel>
+                    <TextBlock Text="{Binding VideoIdleResultLabel}" FontSize="9" FontWeight="Bold" Foreground="#111111" />
+                    <TextBlock Text="{Binding VideoIdlePreviewText}" FontSize="11" Foreground="#555555"
+                               TextWrapping="Wrap" Margin="0,5,0,0" />
+                    <TextBlock Text="{Binding VideoIdleStatusMessage}" FontSize="11" Foreground="#555555"
+                               TextWrapping="Wrap" Margin="0,5,0,0" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Text="Execução e reversão reais continuam bloqueadas no aplicativo. Uma prévia ou captura não significa que a alteração foi aplicada ou verificada."
+                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,8,0,0" />
+              </StackPanel>
+            </Border>
+
             <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="12" Padding="18">
               <StackPanel>
                 <TextBlock Text="1 · Escolha o perfil" FontSize="15" FontWeight="Bold" />
@@ -120,6 +149,36 @@
 
         <TabItem Header="Histórico" Loaded="HistoryTab_Loaded">
           <StackPanel Margin="0,14,0,0">
+            <TextBlock Text="Capturas técnicas reais · VIDEOIDLE" FontSize="15" FontWeight="Bold" Margin="0,0,0,8" />
+            <TextBlock Text="Registros somente leitura, separados das demonstrações sintéticas. Cada captura guarda plano ativo, valor AC anterior e proposta. Não são backups restauráveis do Windows."
+                       FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,10" />
+            <ItemsControl ItemsSource="{Binding VideoIdleHistory}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="#F2F2F0" BorderBrush="#D7D7D3" BorderThickness="1" CornerRadius="10"
+                          Padding="14" Margin="0,0,0,9">
+                    <StackPanel>
+                      <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" />
+                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                      <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Nenhuma captura real foi solicitada nesta sessão." FontSize="10" Foreground="#777777"
+                       Margin="0,0,0,14">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding VideoIdleHistory.Count}" Value="0">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
             <TextBlock Text="Histórico local do aplicativo" FontSize="18" FontWeight="Bold" />
             <TextBlock Text="Registros persistidos em LocalAppData. Snapshots experimentais não são backups do Windows e não podem ser restaurados pelo app."
                        FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,14" />

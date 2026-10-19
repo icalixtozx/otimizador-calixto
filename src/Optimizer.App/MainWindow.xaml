@@ -82,7 +82,7 @@
             </StackPanel>
             <TextBlock Text="Esta versão identifica seu sistema. Nenhum ajuste é aplicado." Foreground="#8A8A8A"
                        FontSize="10" TextWrapping="Wrap" Margin="0,8,0,0" LineHeight="15" />
-            <TextBlock Text="v0.3.0 · Experimental" Foreground="#656565" FontSize="9" Margin="0,11,0,0" />
+            <TextBlock Text="v0.4.0 · Experimental" Foreground="#656565" FontSize="9" Margin="0,11,0,0" />
           </StackPanel>
         </Border>
       </Grid>
