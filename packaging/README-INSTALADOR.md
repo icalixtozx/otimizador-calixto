@@ -1,49 +1,39 @@
-# Instalador experimental
+# Distribuição experimental
 
-CalixtoOptimizer.iss empacota a publicação autocontida Windows x64 0.5.0-experimental de artifacts/release-v0.5.0-experimental/CalixtoOptimizer.
+Versão do aplicativo: 0.5.0-experimental, Windows x64. Não validada em outro computador.
 
-## Estado atual do Inno Setup
+## Compilador e procedência
 
-A instalação foi iniciada pelo comando oficial autorizado:
+Inno Setup 7.1.0 x64 foi instalado pelo procedimento oficial autorizado. ISCC.exe foi encontrado em %LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe. A assinatura Authenticode do compilador está válida e o publicador é Pyrsys B.V. O comando oficial WinGet usa ID JRSoftware.InnoSetup.7.
 
-    winget install --id JRSoftware.InnoSetup.7 -e -s winget -i
+O compilador informou “Non-commercial use only”. Este artefato foi criado para o projeto experimental/pessoal. Uso comercial futuro exige avaliar e cumprir a licença comercial do fornecedor. Fontes: https://jrsoftware.org/isdl.php, https://jrsoftware.org/isdl-verify.php, https://jrsoftware.org/files/is/license.txt e https://jrsoftware.org/isorder.php.
 
-O assistente interativo abriu em “Selecione o Idioma do Instalador” e aguarda seleção, leitura/aceitação dos termos e conclusão pela interface. ISCC.exe ainda não foi confirmado; portanto o .iss não foi compilado e nenhum EXE do instalador foi produzido. Uma segunda tentativa simultânea retornou 0x80070020 porque o primeiro processo ainda usava o executável temporário. Termine a janela aberta antes de tentar novamente.
+## Publicação e compilação
 
-## Verificação oficial e licença
-
-Em 2026-10-19, o fornecedor listava Inno Setup 7.1.0 x64 e indicava o ID WinGet JRSoftware.InnoSetup.7. O comando acima é o interativo documentado pelo fornecedor. winget show retornou versão 7.1.0, licença “Inno Setup License” e fonte oficial GitHub, embora a atualização da fonte WinGet tenha falhado.
-
-O fornecedor documenta três métodos de autenticidade: Authenticode (assinatura válida; publicador Pyrsys B.V.), GitHub Release Attestations e ISSigTool. A instalação iniciada via manifesto oficial ainda não teve sua assinatura verificada independentemente.
-
-A Inno Setup License permite uso e redistribuição, inclusive comercial, sob condições que incluem preservar avisos, não alegar autoria do Inno Setup e marcar versões modificadas. O fornecedor pede licença comercial a usuários comerciais; sua página diz que para projeto recém-iniciado sem instalador de produção não se espera comprar antes do instalador estar pronto para produção. Leia a licença e os termos exibidos pelo assistente antes de concluir.
-
-## Compilar depois da instalação
-
-Na raiz do repositório, publique novamente a versão experimental e compile o script:
+A publicação autocontida foi criada com:
 
     dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.5.0-experimental\CalixtoOptimizer
-    ISCC.exe .\packaging\CalixtoOptimizer.iss
 
-O EXE esperado é artifacts/installer/CalixtoOptimizer-0.5.0-experimental-win-x64-setup.exe. Confirme código de saída zero, existência, tamanho, arquivos incluídos e SHA-256. Compilar o script não comprova a execução da instalação nem da desinstalação. Não execute esse EXE sem aprovação específica.
+O script foi compilado com ISCC.exe 7.1.0. Resultado final: código de saída 0, compilação bem-sucedida, zero avisos e zero erros. A compilação final processou 406 arquivos da pasta de publicação; o .iss seleciona todos por wildcard recursivo. A primeira compilação apontou o identificador x64 depreciado; o script foi corrigido para x64compatible nos dois campos conforme a [documentação oficial de arquitetura](https://jrsoftware.org/ishelp/topic_archidentifiers.htm), e a compilação final terminou sem aviso.
 
-## Privilégios e instalação
+## Artefatos conferidos
 
-- PrivilegesRequired=lowest instala por usuário em %LOCALAPPDATA%\Programs\CalixtoOptimizer.
-- O setup não inicia o app nem cria serviço, tarefa privilegiada ou worker.
-- A pasta do app é gravável pelo usuário. Um futuro worker elevado não pode ser colocado ali; exigiria localização protegida, ACL adequada e protocolo autenticado.
-- O histórico fica em %LOCALAPPDATA%\CalixtoOptimizer\History; o desinstalador não deve apagá-lo.
+- ZIP autocontido: artifacts/CalixtoOptimizer-0.5.0-experimental-win-x64.zip
+- Tamanho: 65.449.730 bytes; 406 entradas.
+- SHA-256 do ZIP: 586CD10AE589985FA84E8EF6C306D6CDB815B2995A2907F767FAA93567C1476A
+- Setup: artifacts/installer/CalixtoOptimizer-0.5.0-experimental-win-x64-setup.exe
+- Tamanho: 46.692.928 bytes.
+- SHA-256 do Setup: EF1D03A6518079BE12843FD0CD2B433F747F99660B22427B6FE591EC7C7D2B9B
+- O Setup foi verificado como não assinado digitalmente (NotSigned). Ele não deve ser apresentado como executável assinado pelo publicador do aplicativo.
+- Conferidos no pacote: Optimizer.App.exe, Optimizer.App.runtimeconfig.json, Optimizer.App.deps.json, coreclr.dll, hostfxr.dll e README-PACOTE.txt. A publicação tem 406 arquivos; a compilação registrou 406 operações de compressão.
 
-## Publicação pelo site
+## O que foi e não foi testado
 
-As instruções manuais para anexar o ZIP e o EXE experimental pelo site do GitHub estão em docs/RELEASE-EXPERIMENTAL.md. gh.exe não é necessário para o upload manual. A Release ainda não foi publicada.
-
-## Fontes oficiais
-
-- Downloads, versão e instrução WinGet: https://jrsoftware.org/isdl.php
-- Verificação Authenticode/attestations/ISSigTool: https://jrsoftware.org/isdl-verify.php
-- Licença: https://jrsoftware.org/files/is/license.txt
-- Licenças comerciais e projeto pré-produção: https://jrsoftware.org/isorder.php
-- Compilador ISCC e códigos de saída: https://jrsoftware.org/ishelp/topic_compilercmdline.htm
-- Instalação não administrativa: https://jrsoftware.org/ishelp/topic_admininstallmode.htm
-- Privilégios requeridos: https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm
+- Build Release: passou, 0 avisos/0 erros.
+- Harness: 39/39 checks passaram; casos de adapters e falhas usam simulação.
+- O ISCC compilou o instalador e confirmou os arquivos de entrada. Isso não comprova o comportamento de Setup/Uninstall em execução.
+- O instalador do Calixto Optimizer não foi executado. Instalação e desinstalação não foram testadas e precisam de aprovação específica antes de testar.
+- O ZIP foi criado e sua listagem, arquivos principais e SHA-256 foram conferidos.
+- O aplicativo continua iniciando em diagnóstico e não executa alterações automaticamente.
+- VIDEOIDLE não foi aplicado; valores atuais permanecem preservados.
+- Nenhuma GitHub Release foi publicada. Para upload manual pelo site, consulte docs/RELEASE-EXPERIMENTAL.md. O repositório privado continuará visível apenas para quem tem acesso.
