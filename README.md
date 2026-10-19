@@ -5,6 +5,7 @@ Aplicativo experimental local para diagnóstico de hardware, dispositivos, drive
 ## Funcionalidades disponíveis
 
 - Lista os planos de energia através de APIs PowrProf, marca o ativo e mostra valores VIDEOIDLE AC/DC em segundos.
+- No código de desenvolvimento 0.6.0, consulta por clique a preferência de modo de energia do Windows 11 em AC e DC separadamente e permite salvar uma captura local antes de qualquer execução.
 - Lê inventário local de dispositivos PnP e metadados de driver reportados pelo Windows: fornecedor, versão, data, INF, assinatura e código PnP.
 - Um código PnP é mostrado como dado reportado pelo Windows; o app não o converte automaticamente em “driver ausente”. Uma linha sem metadados de driver também não prova ausência de driver.
 - Não compara versões com catálogo externo e não classifica drivers como desatualizados.
@@ -18,9 +19,13 @@ VIDEOIDLE é um teste técnico do motor, não uma otimização de desempenho. Pr
 
 A captura técnica não inclui bateria/DC, não é backup do Windows e fica separada da demonstração. Nenhum ajuste, driver, Registro, política, serviço, rede, prioridade ou firmware foi alterado para desenvolver ou gerar este pacote.
 
+## Modo de energia do usuário
+
+As APIs documentadas `PowerGet/SetUserConfiguredAC/DC` são distintas das APIs de plano (`PowerGet/SetActiveScheme`). O código 0.6 consulta e captura a preferência real AC/DC sob demanda, apresenta consequências e implementa aplicação, verificação e reversão condicional no serviço. A aplicação WPF não oferece comando para escrita e injeta política bloqueada; aplicar e reverter foram testados somente com adaptadores simulados. Neste PC, apenas os getters foram executados: build 26300 retornou Equilibrado em AC e DC. Não foi feita escrita nem medida de desempenho. Consulte [documentação do modo de energia](docs/ADJUSTMENTS.md).
+
 ## Distribuição experimental
 
-Versão 0.5.0-experimental para Windows x64. O ZIP autocontido e o instalador EXE foram compilados; instalação e desinstalação foram testadas neste PC de desenvolvimento. Ainda não foi validada em outro computador. O Setup não tem assinatura digital própria e a GitHub pre-release ainda não foi publicada.
+Os artefatos 0.5.0-experimental para Windows x64 correspondem à tag `v0.5.0-experimental`: ZIP autocontido e instalador EXE compilados; instalação e desinstalação testadas neste PC de desenvolvimento. A GitHub pre-release ainda não foi publicada e esses pacotes não incluem o recurso de modo de energia do código de desenvolvimento 0.6. O Setup não tem assinatura digital própria. Nenhuma versão foi validada em outro computador.
 
 Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md), [artefatos e instalador](packaging/README-INSTALADOR.md) e [passos para publicar a pre-release](docs/RELEASE-EXPERIMENTAL.md).
 
@@ -50,17 +55,17 @@ Na raiz do repositório:
     dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
     dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 
-O harness Core cobre catálogo/perfis/consentimento/diário/simulação e o fluxo VIDEOIDLE com adaptadores falsos. Ele não chama APIs de escrita nem comprova reversão real. A enumeração de energia e as consultas WMI foram validadas separadamente no Windows local, somente leitura.
+O harness Core cobre catálogo/perfis/consentimento/diário/simulação e os fluxos VIDEOIDLE e modo de energia com adaptadores falsos. Ele não chama APIs de escrita nem comprova reversão real. O inventário, planos, VIDEOIDLE e getters do modo de energia foram validados separadamente no Windows local, somente leitura.
 
 ## Estrutura
 
     src/Optimizer.App/          WPF, navegação e interface
     src/Optimizer.Core/         inventário, catálogo, perfis e fluxo de operações
-    src/Optimizer.Windows/      WMI, inventário PowrProf e adaptador VIDEOIDLE
+    src/Optimizer.Windows/      WMI, inventário PowrProf, VIDEOIDLE e modo de energia do usuário
     tests/Optimizer.Core.Tests/ harness Core com falhas e adaptadores simulados
     docs/                       arquitetura, diagnóstico, catálogo, recuperação e progresso
     packaging/                  fonte do Inno Setup e documentação
 
 ## Privacidade
 
-Não há conta, servidor ou telemetria remota. IDs PnP são mantidos somente em memória para cruzar as consultas e não entram no CSV ou JSON. O JSON também omite GUIDs de planos, nomes da conta/computador, números de série, endereços de rede e caminhos locais; ainda contém nomes/modelos de componentes e drivers. Revise a prévia antes de salvar ou compartilhar. Histórico técnico VIDEOIDLE só é gravado após captura explícita em %LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle.
+Não há conta, servidor ou telemetria remota. IDs PnP são mantidos somente em memória para cruzar as consultas e não entram no CSV ou JSON. O JSON também omite GUIDs de planos, nomes da conta/computador, números de série, endereços de rede e caminhos locais; ainda contém nomes/modelos de componentes e drivers. Revise a prévia antes de salvar ou compartilhar. Históricos técnicos VIDEOIDLE e de modo de energia só são gravados após captura explícita em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle` e `RealPowerMode`.

@@ -1,16 +1,17 @@
-# Candidatos iniciais de desempenho (propostos)
+# Catálogo de desempenho e próximos candidatos
 
-**Estado:** propostas para escolha. Não estão implementadas nem foram aplicadas. Nenhuma promete aumento de FPS; disponibilidade e resultado dependem do Windows, do hardware, do driver, do jogo e do gargalo atual.
+**Estado:** o modo de energia foi selecionado e tem código no desenvolvimento 0.6, com leitura real e fluxo de escrita/reversão testado somente por simulação; nenhuma escrita foi feita. Os candidatos de GPU abaixo continuam propostas não implementadas. Nenhum promete aumento de FPS; disponibilidade e resultado dependem do Windows, hardware, driver, workload e gargalo.
 
 ## 1. Modo de energia “Melhor desempenho”
 
-- **Objetivo/mecanismo:** favorecer desempenho quando necessário. A Microsoft descreve “Best performance” como maximizando desempenho e podendo ajudar a CPU a operar em desempenho mais alto quando necessário; não fixa frequência nem vence limites térmicos, elétricos ou do firmware.
-- **Fontes:** [Alterar modo de energia](https://support.microsoft.com/en-us/windows/change-the-power-mode-for-your-windows-pc-c2aff038-22c9-f46d-5ca0-78696fdf2de8); [dicas de desempenho](https://support.microsoft.com/en-us/windows/experience/performance-optimization/tips-to-improve-pc-performance-in-windows).
-- **Compatibilidade:** Windows 10/11, mas a opção pode não existir em todo PC ou ficar indisponível com plano personalizado. Portáteis podem expor estados separados para tomada e bateria.
-- **Consequências:** maior consumo; em notebook, menor duração de bateria, mais calor e ventoinha mais rápida/ruidosa. Não garante ganho em jogos.
-- **Privilégios:** mudança manual em Configurações. Plano personalizado ou política do fabricante/organização pode impedir mudança; o app não contorna bloqueios.
-- **Captura/reversão:** registrar a seleção para tomada e bateria e o plano ativo; restaurar cada seleção exata capturada e confirmar por leitura.
-- **Avaliação:** repetir o mesmo benchmark/cena, jogo e versão, resolução, qualidade e condição térmica; registrar FPS médio, 1% low, tempos de quadro, CPU/GPU, temperatura, energia e ruído. Reverter se não houver diferença repetível ou se os efeitos forem indesejáveis.
+- **Objetivo/mecanismo:** o Windows documenta três preferências configuradas pelo usuário, incluindo “Best performance”, como um sinal para o sistema; não fixa frequência nem vence limites térmicos, elétricos ou do firmware. Esta é a preferência de modo, não o plano ativo.
+- **Fontes de implementação:** [API para AC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfiguredacpowermode) e [API para DC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfigureddcpowermode); ambas documentadas para apps desktop no Windows 11.
+- **Compatibilidade:** Windows 11 build 22000+ com as funções PowrProf presentes. AC e DC podem ter valores e falhas independentes. Windows 10 fica indisponível para este recurso; política, OEM e outros sinais podem sobrepor a preferência.
+- **Consequências:** Melhor desempenho pode elevar consumo, temperatura e ruído e reduzir autonomia na bateria; não garante ganho em jogos.
+- **Privilégios:** app é `asInvoker`; escrita real não foi validada, e o erro nativo será mostrado. Não há worker elevado nem bypass de política.
+- **Captura/reversão:** captura persistente por operação só para os lados selecionados. Motor faz detecção de conflito e restaura o valor capturado somente se o estado atual ainda corresponder ao valor capturado ou ao alvo; confirmação por getter não demonstra efetividade. Mudança concorrente entre leitura e setter ainda é possível.
+- **Avaliação:** comparar o modo configurado e, após aprovação de execução, repetir o mesmo workload/benchmark e condição térmica, anotando frametime, energia, temperatura e ruído. Nenhum resultado de desempenho foi medido neste ciclo.
+- **Estado verificado:** no Windows local build 26300, getters AC e DC retornaram Equilibrado. Build e 50 checks locais passaram; aplicação/reversão foram exercitadas apenas com adaptadores falsos. Nenhum setter real foi chamado. Consulte [detalhes, consentimento e limites](ADJUSTMENTS.md#modo-de-energia-configurado-pelo-usuário-windows-11).
 
 ## 2. Preferência de GPU “Alto desempenho” por jogo
 

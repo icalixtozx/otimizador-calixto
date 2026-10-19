@@ -53,6 +53,67 @@
               </StackPanel>
             </Border>
 
+            <Border Background="White" BorderBrush="#D7D7D3" BorderThickness="1" CornerRadius="12"
+                    Padding="18" Margin="0,0,0,14">
+              <StackPanel>
+                <TextBlock Text="RECURSO DE DESEMPENHO · MODO DE ENERGIA" FontSize="9" FontWeight="Bold" Foreground="#555555" />
+                <TextBlock Text="Preferência do Windows 11 · separada do plano de energia" FontSize="15" FontWeight="Bold" Margin="0,5,0,0" />
+                <TextBlock Text="Usa a API PowrProf documentada para ler a preferência configurada em AC e DC separadamente. Isso não troca o plano e não comprova qual modo está efetivo: sinais do Windows podem sobrepor a preferência. Melhor desempenho pode aumentar consumo, calor e ruído; na bateria pode reduzir autonomia. Nenhuma opção promete ganho de FPS."
+                           FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,10" />
+                <WrapPanel>
+                  <Button Content="Ler modo configurado (somente leitura)" Command="{Binding PowerMode.ReadCommand}"
+                          Style="{StaticResource SecondaryButton}" Margin="0,0,8,7" />
+                  <Button Content="Capturar estado e alvos no histórico" Command="{Binding PowerMode.CaptureCommand}"
+                          Style="{StaticResource SecondaryButton}" Margin="0,0,8,7" />
+                </WrapPanel>
+                <Border Background="#F5F5F3" CornerRadius="8" Padding="11" Margin="0,3,0,9">
+                  <StackPanel>
+                    <TextBlock Text="{Binding PowerMode.ResultLabel}" FontSize="9" FontWeight="Bold" Foreground="#111111" />
+                    <TextBlock Text="{Binding PowerMode.CurrentAcText}" FontSize="11" Foreground="#444444" Margin="0,5,0,0" />
+                    <TextBlock Text="{Binding PowerMode.CurrentDcText}" FontSize="11" Foreground="#444444" Margin="0,3,0,0" />
+                    <TextBlock Text="{Binding PowerMode.CompatibilityText}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+                  </StackPanel>
+                </Border>
+                <Grid Margin="0,0,0,8">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="Alvo ligado à tomada (AC)" FontSize="11" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding PowerMode.Options}" SelectedItem="{Binding PowerMode.SelectedAcTarget, Mode=TwoWay}"
+                              DisplayMemberPath="Name" IsEnabled="{Binding PowerMode.CanSelectAc}" Height="34" Padding="6,4" Margin="0,4,0,0" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="Alvo na bateria (DC)" FontSize="11" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding PowerMode.Options}" SelectedItem="{Binding PowerMode.SelectedDcTarget, Mode=TwoWay}"
+                              DisplayMemberPath="Name" IsEnabled="{Binding PowerMode.CanSelectDc}" Height="34" Padding="6,4" Margin="0,4,0,0" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="Deixe um lado sem seleção para preservá-lo. Cada lado precisa de leitura suportada e captura própria."
+                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,0,0,9" />
+                <Border Background="#F7F7F5" CornerRadius="8" Padding="11" Margin="0,0,0,8">
+                  <StackPanel>
+                    <TextBlock Text="Consequências e consentimento específico" FontSize="12" FontWeight="Bold" />
+                    <TextBlock Text="{Binding PowerMode.AcConsequence}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,4" />
+                    <CheckBox Content="Li e aceito a consequência para tomada (AC) desta captura"
+                              IsChecked="{Binding PowerMode.AcceptAcConsequences, Mode=TwoWay}"
+                              IsEnabled="{Binding PowerMode.CanReviewAcConsent}" FontSize="10" />
+                    <TextBlock Text="{Binding PowerMode.DcConsequence}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,8,0,4" />
+                    <CheckBox Content="Li e aceito a consequência para bateria (DC) desta captura"
+                              IsChecked="{Binding PowerMode.AcceptDcConsequences, Mode=TwoWay}"
+                              IsEnabled="{Binding PowerMode.CanReviewDcConsent}" FontSize="10" />
+                    <TextBlock Text="{Binding PowerMode.CaptureSummary}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <TextBlock Text="{Binding PowerMode.RequiredApplyPhrase}"
+                               FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,0" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Text="As caixas acima registram a revisão individual da consequência apenas nesta tela; não autorizam escrita. Aplicação e restauração reais permanecem bloqueadas por padrão até aprovação específica em outra etapa. Nenhum setter é chamado ao iniciar, ler ou capturar."
+                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding PowerMode.StatusMessage}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+              </StackPanel>
+            </Border>
             <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="12" Padding="18">
               <StackPanel>
                 <TextBlock Text="1 · Escolha o perfil" FontSize="15" FontWeight="Bold" />
@@ -149,6 +210,35 @@
 
         <TabItem Header="Histórico" Loaded="HistoryTab_Loaded">
           <StackPanel Margin="0,14,0,0">
+            <TextBlock Text="Capturas reais · modo de energia" FontSize="15" FontWeight="Bold" Margin="0,0,0,8" />
+            <TextBlock Text="Capturas locais da preferência configurada separada para AC/DC. Não são backups do Windows; valores antigos no histórico não foram rechecados automaticamente."
+                       FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,10" />
+            <ItemsControl ItemsSource="{Binding PowerMode.History}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="#F2F2F0" BorderBrush="#D7D7D3" BorderThickness="1" CornerRadius="10"
+                          Padding="14" Margin="0,0,0,9">
+                    <StackPanel>
+                      <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" />
+                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                      <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Nenhuma captura de modo de energia foi solicitada." FontSize="10" Foreground="#777777" Margin="0,0,0,14">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding PowerMode.History.Count}" Value="0">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
             <TextBlock Text="Capturas técnicas reais · VIDEOIDLE" FontSize="15" FontWeight="Bold" Margin="0,0,0,8" />
             <TextBlock Text="Registros somente leitura, separados das demonstrações sintéticas. Cada captura guarda plano ativo, valor AC anterior e proposta. Não são backups restauráveis do Windows."
                        FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,10" />

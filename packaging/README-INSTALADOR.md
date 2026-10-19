@@ -1,5 +1,7 @@
 # Distribuição experimental
 
+Os tamanhos, hashes e testes abaixo descrevem os artefatos 0.5.0 já produzidos, correspondentes à tag `v0.5.0-experimental`. O código atual em `main` está na versão de desenvolvimento 0.6.0. `packaging/CalixtoOptimizer.iss` já aponta para a pasta de publicação 0.6; nenhum pacote 0.6 foi gerado neste ciclo.
+
 Versão 0.5.0-experimental para Windows x64. Foi testada neste PC de desenvolvimento; não foi testada em outro computador. O instalador não tem assinatura digital própria.
 
 ## Compilador, procedência e licença
@@ -10,7 +12,7 @@ O compilador informou `Non-commercial use only`. O artefato foi produzido para e
 
 ## Compilação e artefatos
 
-A publicação autocontida foi gerada com:
+A publicação autocontida histórica do 0.5 foi gerada com:
 
 ```powershell
 dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.5.0-experimental\CalixtoOptimizer

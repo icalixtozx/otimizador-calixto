@@ -1,10 +1,30 @@
-# VIDEOIDLE: teste técnico do motor real
+# Ajustes de energia implementados
+
+## Modo de energia configurado pelo usuário (Windows 11)
+
+Este é o primeiro recurso de desempenho do catálogo. Não é um plano de energia e não é apresentado como ajuste de FPS: usa as APIs de modo configurado do usuário em `PowrProf.dll`. A documentação da Microsoft define os valores aceitos como Melhor eficiência, Equilibrado e Melhor desempenho; descreve o valor como uma preferência/sinal do usuário que pode ser sobreposto por outros sinais do sistema. O valor configurado, portanto, não comprova o modo efetivo nem um ganho de desempenho.
+
+O suporte documentado começa no Windows 11 desktop. O adaptador verifica a build mínima 22000 e a presença das quatro exportações AC/DC de leitura/escrita antes de habilitar revisão. A tela lê a preferência real somente por clique, em AC e DC separadamente. No PC de desenvolvimento (Windows build 26300), as duas consultas retornaram sucesso e `Equilibrado`; nenhum setter foi chamado. Windows 10, API ausente, GUID desconhecido e falha individual de leitura não permitem alterar o lado correspondente.
+
+- **Objetivo/mecanismo:** definir a preferência configurada pelo usuário para o estado ligado à tomada (AC), na bateria (DC), ou ambos. Não altera o plano ativo e não fixa diretamente clocks, tensão, frequência ou desempenho de hardware.
+- **Consequências:** Melhor desempenho favorece desempenho, com possibilidade de maior consumo, temperatura e ruído; em bateria pode reduzir autonomia. Melhor eficiência pode reduzir resposta/desempenho em algumas cargas. Equilibrado é um sinal de equilíbrio. OEM, firmware, políticas, carga e outros sinais podem sobrepor ou alterar o resultado efetivo.
+- **Privilégios:** o aplicativo permanece `asInvoker`, sem worker elevado. O código não presume que elevação seja necessária nem suficiente; um erro Win32 é reportado. Escrita real ainda não foi validada neste ou em outro PC.
+- **Captura e consentimento:** captura persistida separada em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealPowerMode` armazena somente os lados selecionados, valores anteriores, alvos e fingerprint. As consequências são apresentadas separadamente para AC/DC. O serviço exige consentimento da consequência de cada lado selecionado, frase de confirmação vinculada à operação e política de escrita habilitada. A captura não é backup do Windows.
+- **Aplicação/verificação:** o serviço persiste intenção antes de cada setter, compara o estado lido antes de escrever e faz leitura de retorno após cada lado e ao final. Conflito interrompe etapas restantes; falha ou estado ambíguo fica não verificado, nunca é apresentado como sucesso.
+- **Restauração:** captura valores anteriores e reverte apenas lados selecionados que ainda correspondam ao valor-alvo ou ao valor capturado. Uma preferência que esteja num terceiro estado causa conflito e recusa a escrita. A leitura posterior confirma somente a preferência configurada, não a efetividade.
+- **Limitações de concorrência:** APIs separadas não oferecem transação compare-and-swap; uma alteração externa entre leitura e setter ainda é possível. Falha/interrupção pode deixar uma operação parcialmente concluída e requer revisão manual.
+- **Avaliação:** comparar preferências configuradas e, quando houver uma aprovação futura de execução, medir uma carga repetível no mesmo equipamento, observando energia/temperatura/desempenho. Nenhuma melhoria está prometida ou foi medida. Não foram feitas alterações reais; aplicação e restauração só foram testadas com adaptadores falsos.
+- **Estado da UI:** leitura e captura real estão disponíveis sob demanda. Revisão de consequência é visível. Aplicação/reversão permanecem bloqueadas por padrão e não há ação de escrita exposta na interface.
+
+Fontes oficiais: [PowerSetUserConfiguredACPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfiguredacpowermode), [PowerGetUserConfiguredACPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfiguredacpowermode), [PowerSetUserConfiguredDCPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfigureddcpowermode) e [PowerGetUserConfiguredDCPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfigureddcpowermode). `PowerSetActiveScheme` é a API separada para mudar o plano ativo.
+
+## VIDEOIDLE: teste técnico do motor real
 
 ## Estado
 
 O primeiro adaptador real está implementado para o valor `VIDEOIDLE` no lado AC do plano ativo, com alvo proposto de **900 segundos**. O app permite, somente após ação explícita, ler o valor real e salvar uma captura técnica separada no histórico `RealVideoIdle`. Não faz essa leitura automaticamente na inicialização.
 
-O app não oferece caminho de escrita: aplicar/reverter estão bloqueados pela política `BlockedVideoIdleMutationPolicy` (nega sempre), e não existe comando/botão habilitado para isso. O serviço Core implementa o fluxo de aplicação, leitura posterior, detecção de conflito e reversão condicional para permitir testes com adaptador falso e futura validação. A implementação não foi executada nesta máquina.
+O app não oferece caminho de escrita: aplicar/reverter estão bloqueados pela política `BlockedVideoIdleMutationPolicy` (nega sempre), e não existe comando/botão habilitado para isso. O serviço Core implementa o fluxo de aplicação, leitura posterior, detecção de conflito e reversão condicional para permitir testes com adaptador falso e futura validação. Nenhum setter VIDEOIDLE foi chamado nesta máquina.
 
 A consulta do GUID do plano e do índice AC usa APIs PowrProf com GUIDs fixos, sem interpretar saída de `powercfg` localizada. A escrita só toca `PowerWriteACValueIndex` no lado AC; o lado DC e outros valores não são enviados ao adaptador. A API documenta que a escrita de um plano ativo precisa de `PowerSetActiveScheme` para entrar em vigor. Fontes e compatibilidade estão em [Microsoft: VIDEOIDLE](https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/display-settings-display-idle-timeout), [PowerReadACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powerreadacvalueindex), [PowerWriteACValueIndex](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powerwriteacvalueindex) e [PowerSetActiveScheme](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powersetactivescheme).
 

@@ -1,6 +1,18 @@
 # Catálogo inicial de candidatos
 
-Este catálogo é uma triagem técnica, não uma lista de otimizações habilitadas. Somente o teste VIDEOIDLE tem adaptador técnico. As áreas processos, Registro, políticas e rede permanecem **indisponíveis**: não existe uma alteração universal com benefício comprovado que justifique uma escrita genérica.
+Este catálogo é uma triagem técnica, não uma lista de otimizações habilitadas. O modo de energia configurado e VIDEOIDLE têm adaptadores técnicos distintos; aplicação real continua bloqueada. As áreas processos, Registro, políticas e rede permanecem **indisponíveis**: não existe uma alteração universal com benefício comprovado que justifique uma escrita genérica.
+
+## Energia — modo configurado pelo usuário (AC/DC; Windows 11)
+
+- **Objetivo/mecanismo:** escolher entre Melhor eficiência, Equilibrado e Melhor desempenho para a preferência AC e/ou DC do usuário, pelas APIs documentadas `PowerSetUserConfiguredACPowerMode`/`PowerSetUserConfiguredDCPowerMode`. Não altera o plano ativo nem significa um ganho de FPS.
+- **Compatibilidade:** Windows 11 desktop com as exportações PowrProf necessárias; o adaptador exige build 22000+ e valida as funções presentes. Modo AC e modo DC podem ser lidos separadamente; um lado com erro/valor desconhecido não pode ser alterado. Windows 10 não é suportado para esse recurso.
+- **Consequências:** Melhor desempenho pode aumentar consumo, calor, ruído e reduzir autonomia na bateria; Melhor eficiência pode reduzir resposta em certas cargas. O Windows pode sobrepor a preferência configurada por outros sinais.
+- **Privilégios:** o aplicativo é `asInvoker`; o acesso de escrita não foi confirmado e falhas serão reportadas. Nenhum worker elevado está incluído.
+- **Captura/reversão:** captura persistida independente por AC/DC. Reversão condicional só é aceita se o estado atual ainda for captura ou alvo; um terceiro valor gera conflito. Não há operação atômica compare-and-swap, logo corrida concorrente entre leitura e setter continua possível.
+- **Avaliação:** comparação de leitura do valor configurado e, após eventual aprovação de execução, medição repetível de consumo/temperatura e workload no mesmo hardware. Até agora só foram consultados os valores configurados localmente; nenhum resultado de desempenho foi medido.
+- **Estado:** leitura real sob demanda, captura persistida e prévia de consequência implementadas; aplicação/reversão testadas somente com adaptadores falsos e bloqueadas no app. No Windows local build 26300, getters AC e DC retornaram `Equilibrado`; nenhum setter foi chamado.
+
+Fontes: [PowerSetUserConfiguredACPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfiguredacpowermode), [PowerGetUserConfiguredACPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfiguredacpowermode), [PowerSetUserConfiguredDCPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfigureddcpowermode), [PowerGetUserConfiguredDCPowerMode](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfigureddcpowermode).
 
 ## Energia — VIDEOIDLE AC = 900 segundos
 

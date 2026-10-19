@@ -44,7 +44,18 @@ var tests = new (string Name, Func<Task> Run)[]
     ("VIDEOIDLE reversal refuses a changed setting", VideoIdleRevertIsConditional),
     ("VIDEOIDLE interruption after the fake write is left unverified and recoverable", VideoIdleInterruptionLeavesManualRecoveryRecord),
     ("VIDEOIDLE capture write failure is not reported as persisted", VideoIdleCaptureFailureIsNotReportedAsSaved),
-    ("VIDEOIDLE store rejects a tampered persisted capture", VideoIdleStoreRejectsTamperedCapture)
+    ("VIDEOIDLE store rejects a tampered persisted capture", VideoIdleStoreRejectsTamperedCapture),
+    ("Windows power-mode GUIDs map only documented values", () => RunSync(PowerModeGuidsMapDocumentedValues)),
+    ("power-mode capture persists independent AC/DC state while default writes stay blocked", PowerModeCaptureIsPersistedAndBlockedByDefault),
+    ("power-mode capture can select AC only when DC is unavailable", PowerModeCaptureSupportsOneSide),
+    ("power-mode application requires consequence consent for every selected side", PowerModeApplyRequiresSpecificConsent),
+    ("power-mode application and restoration verify independent AC/DC values", PowerModeApplyAndRevertVerifyEachSide),
+    ("power-mode application detects state conflicts before writing", PowerModeApplyDetectsConflict),
+    ("power-mode interrupted partial apply is persisted and conditionally recoverable", PowerModeInterruptionCanBeConditionallyReverted),
+    ("power-mode restoration refuses third-party changes", PowerModeRevertRefusesExternalChange),
+    ("power-mode journal failure before first write leaves fake Windows unchanged", PowerModeJournalFailurePreventsWrite),
+    ("power-mode store rejects tampered captures", PowerModeStoreRejectsTamperedCapture),
+    ("power-mode store rejects an unsupported persisted state", PowerModeStoreRejectsUnsupportedState)
 };
 
 var failures = 0;
@@ -455,6 +466,222 @@ static async Task VideoIdleStoreRejectsTamperedCapture()
     });
 }
 
+static void PowerModeGuidsMapDocumentedValues()
+{
+    Assert(UserConfiguredPowerModes.TryParse(Guid.Parse("961cc777-2547-4f9d-8174-7d86181b8a7a"), out var efficient) &&
+        efficient == UserConfiguredPowerMode.BestEfficiency, "best-efficiency GUID must map to documented enum");
+    Assert(UserConfiguredPowerModes.TryParse(Guid.Empty, out var balanced) && balanced == UserConfiguredPowerMode.Balanced,
+        "GUID_POWER_MODE_NONE must map to Balanced");
+    Assert(UserConfiguredPowerModes.TryParse(Guid.Parse("ded574b5-45a0-4f42-8737-46345c09c238"), out var performance) &&
+        performance == UserConfiguredPowerMode.BestPerformance, "best-performance GUID must map to documented enum");
+    Assert(!UserConfiguredPowerModes.TryParse(Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), out _),
+        "unknown mode GUID must never be treated as a reversible supported value");
+}
+
+static async Task PowerModeCaptureIsPersistedAndBlockedByDefault()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.BestEfficiency);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store);
+        var preview = service.ReadPreview();
+        Assert(preview.CanModifyAc && preview.CanModifyDc, "preview must expose both configured sides");
+        Assert(adapter.Writes.Count == 0, "preview must be read-only");
+
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.Balanced);
+        var persisted = await store.LoadAsync(capture.OperationId);
+        Assert(persisted?.State == PowerModeOperationState.Captured, "capture must be persisted before writes");
+        Assert(persisted!.PreviousAcMode == UserConfiguredPowerMode.Balanced &&
+            persisted.PreviousDcMode == UserConfiguredPowerMode.BestEfficiency, "AC/DC prior modes must be captured separately");
+        Assert(adapter.Writes.Count == 0, "capture must not call a setter");
+
+        var approval = MakePowerModeApproval(capture, PowerModeAction.Apply, true, true);
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(capture.OperationId, approval));
+        Assert(adapter.Writes.Count == 0, "default mutation policy must deny real writes");
+    });
+}
+
+static async Task PowerModeCaptureSupportsOneSide()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced)
+        {
+            DcModeIdOverride = null,
+            DcErrorCode = 50
+        };
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var capture = await new PowerModeOperationService(adapter, store)
+            .CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        Assert(capture.PreviousAcMode == UserConfiguredPowerMode.Balanced && capture.PreviousDcMode is null,
+            "a partial API failure must not block independently supported AC capture or invent DC state");
+        Assert(adapter.Writes.Count == 0, "partial-side capture must remain read-only");
+    });
+}
+
+static async Task PowerModeApplyRequiresSpecificConsent()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.BestEfficiency);
+        var missingDcConsent = MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: false);
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(capture.OperationId, missingDcConsent));
+        var wrongPhrase = missingDcConsent with { DcConsequencesAccepted = true, ConfirmationPhrase = "APPLY POWER MODE WRONG" };
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(capture.OperationId, wrongPhrase));
+        Assert(adapter.Writes.Count == 0, "partial or stale consent must not reach a setter");
+    });
+}
+
+static async Task PowerModeApplyAndRevertVerifyEachSide()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.BestEfficiency);
+        var applied = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: true));
+        Assert(applied.State == PowerModeOperationState.Verified, "both independently selected values must verify");
+        Assert(adapter.AcMode == UserConfiguredPowerMode.BestPerformance && adapter.DcMode == UserConfiguredPowerMode.BestEfficiency,
+            "only the selected AC/DC targets should be written");
+        Assert(adapter.Writes.Select(write => write.Side).SequenceEqual(["AC", "DC"]),
+            "the adapter must call separate AC and DC setters");
+
+        var reverted = await service.RevertAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
+        Assert(reverted.State == PowerModeOperationState.Reverted, "later readback must verify restoration");
+        Assert(adapter.AcMode == UserConfiguredPowerMode.Balanced && adapter.DcMode == UserConfiguredPowerMode.Balanced,
+            "restoration must use both exact captured values");
+    });
+}
+
+static async Task PowerModeApplyDetectsConflict()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.BestEfficiency);
+        adapter.DcMode = UserConfiguredPowerMode.BestEfficiency;
+        var result = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: true));
+        Assert(result.State == PowerModeOperationState.Conflict, "state changed since capture must be reported as conflict");
+        Assert(adapter.Writes.Count == 0, "no side may be written after a pre-apply conflict");
+    });
+}
+
+static async Task PowerModeInterruptionCanBeConditionallyReverted()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced)
+        {
+            ThrowAfterAcWrite = true
+        };
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.BestEfficiency);
+        var interrupted = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: true));
+        Assert(interrupted.State == PowerModeOperationState.MutationUnverified,
+            "exception after fake AC write must not be labeled success");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == PowerModeOperationState.MutationUnverified,
+            "partial operation state must be persisted");
+        Assert(adapter.DcMode == UserConfiguredPowerMode.Balanced, "DC setter must not run after AC interruption");
+
+        var reverted = await service.RevertAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
+        Assert(reverted.State == PowerModeOperationState.Reverted &&
+            adapter.AcMode == UserConfiguredPowerMode.Balanced && adapter.DcMode == UserConfiguredPowerMode.Balanced,
+            "conditional recovery should restore the partial AC write and preserve unchanged DC");
+    });
+}
+
+static async Task PowerModeRevertRefusesExternalChange()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, UserConfiguredPowerMode.BestPerformance);
+        _ = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: true));
+        var appliedWriteCount = adapter.Writes.Count;
+        adapter.DcMode = UserConfiguredPowerMode.BestEfficiency;
+        var reverted = await service.RevertAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
+        Assert(reverted.State == PowerModeOperationState.Conflict, "third-party mode must cause a restoration conflict");
+        Assert(adapter.Writes.Count == appliedWriteCount, "recovery must not overwrite an external change");
+    });
+}
+
+static async Task PowerModeJournalFailurePreventsWrite()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var storage = new FaultInjectingJournalStorage();
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"), storage);
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        storage.NextWriteFailure = JournalWriteFailure.DiskFull;
+        await AssertThrowsAsync<IOException>(() => service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true, dc: false)));
+        Assert(adapter.Writes.Count == 0, "failure persisting the intent must prevent the power-mode setter");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == PowerModeOperationState.Captured,
+            "the last committed capture must survive failed intent write");
+    });
+}
+
+static async Task PowerModeStoreRejectsTamperedCapture()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var operationDirectory = Path.Combine(directory, "real-power-mode");
+        var store = new JsonPowerModeOperationStore(operationDirectory);
+        var service = new PowerModeOperationService(
+            new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced), store);
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        var path = Path.Combine(operationDirectory, capture.OperationId.ToString("D") + ".json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+        node["TargetAcMode"] = (int)UserConfiguredPowerMode.BestEfficiency;
+        await File.WriteAllTextAsync(path, node.ToJsonString());
+        await AssertThrowsAsync<InvalidDataException>(() => store.LoadAsync(capture.OperationId));
+    });
+}
+
+static async Task PowerModeStoreRejectsUnsupportedState()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var operationDirectory = Path.Combine(directory, "real-power-mode");
+        var store = new JsonPowerModeOperationStore(operationDirectory);
+        var service = new PowerModeOperationService(
+            new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced), store);
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        var path = Path.Combine(operationDirectory, capture.OperationId.ToString("D") + ".json");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path))!;
+        node["State"] = 999;
+        await File.WriteAllTextAsync(path, node.ToJsonString());
+        await AssertThrowsAsync<InvalidDataException>(() => store.LoadAsync(capture.OperationId));
+    });
+}
+
+static PowerModeApproval MakePowerModeApproval(
+    PowerModeOperationRecord record,
+    PowerModeAction action,
+    bool ac = false,
+    bool dc = false,
+    bool recovery = false) =>
+    PowerModeApproval.Confirm(record, action, ac, dc, recovery,
+        PowerModeApproval.RequiredPhrase(record.OperationId, action));
 static VideoIdleApproval MakeVideoIdleApproval(VideoIdleOperationRecord record, VideoIdleAction action) =>
     VideoIdleApproval.Confirm(record, action, consequenceAccepted: true,
         VideoIdleApproval.RequiredPhrase(record.OperationId, action));
@@ -963,6 +1190,47 @@ sealed class FakeVideoIdlePowerAdapter(uint initialSeconds) : IVideoIdlePowerAda
             throw new IOException("Injected post-write interruption.");
         }
         ActiveSchemeId = schemeId;
+    }
+}
+sealed class FakePowerModeAdapter(UserConfiguredPowerMode acMode, UserConfiguredPowerMode dcMode) : IPowerModeAdapter
+{
+    public UserConfiguredPowerMode AcMode { get; set; } = acMode;
+    public UserConfiguredPowerMode DcMode { get; set; } = dcMode;
+    public Guid? AcModeIdOverride { get; set; }
+    public Guid? DcModeIdOverride { get; set; }
+    public uint? AcErrorCode { get; set; }
+    public uint? DcErrorCode { get; set; }
+    public bool ApiAvailable { get; set; } = true;
+    public bool ThrowAfterAcWrite { get; set; }
+    public Action? AfterAcWrite { get; set; }
+    public List<(string Side, UserConfiguredPowerMode Mode)> Writes { get; } = [];
+
+    public PowerModeReadResult ReadConfiguredModes() => new(
+        DateTimeOffset.UtcNow,
+        ApiAvailable,
+        AcErrorCode is null ? AcModeIdOverride ?? UserConfiguredPowerModes.ToId(AcMode) : null,
+        DcErrorCode is null ? DcModeIdOverride ?? UserConfiguredPowerModes.ToId(DcMode) : null,
+        AcErrorCode,
+        DcErrorCode,
+        ApiAvailable ? "Simulated Windows 11 API" : "Simulated unsupported API");
+
+    public void SetConfiguredAcMode(UserConfiguredPowerMode mode)
+    {
+        Writes.Add(("AC", mode));
+        if (AcErrorCode is null) AcMode = mode;
+        AfterAcWrite?.Invoke();
+        AfterAcWrite = null;
+        if (ThrowAfterAcWrite)
+        {
+            ThrowAfterAcWrite = false;
+            throw new IOException("Injected interruption after AC write.");
+        }
+    }
+
+    public void SetConfiguredDcMode(UserConfiguredPowerMode mode)
+    {
+        Writes.Add(("DC", mode));
+        if (DcErrorCode is null) DcMode = mode;
     }
 }
 enum JournalWriteFailure

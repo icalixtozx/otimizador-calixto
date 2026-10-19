@@ -24,7 +24,8 @@ public sealed class MainWindowViewModel : ObservableObject
         Profiles = new ProfilesPageViewModel(
             OptimizerProfileCatalog.CreateDefault(),
             new AdjustmentCatalog([]),
-            new WindowsVideoIdlePowerAdapter());
+            new WindowsVideoIdlePowerAdapter(),
+            new WindowsPowerModeAdapter());
         _currentPage = Overview;
         NavigationItems =
         [

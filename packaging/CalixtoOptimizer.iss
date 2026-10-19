@@ -1,5 +1,5 @@
-#define ProductVersion "0.5.0-experimental"
-#define PublishDirectory SourcePath + "\..\artifacts\release-v0.5.0-experimental\CalixtoOptimizer"
+#define ProductVersion "0.6.0-experimental"
+#define PublishDirectory SourcePath + "\..\artifacts\release-v0.6.0-experimental\CalixtoOptimizer"
 #define InstallerOutputDirectory SourcePath + "\..\artifacts\installer"
 
 [Setup]

@@ -97,11 +97,13 @@ public sealed class ProfilesPageViewModel : ObservableObject
     public ProfilesPageViewModel(
         OptimizerProfileCatalog profiles,
         AdjustmentCatalog adjustments,
-        IVideoIdlePowerAdapter videoIdleAdapter)
+        IVideoIdlePowerAdapter videoIdleAdapter,
+        IPowerModeAdapter powerModeAdapter)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentNullException.ThrowIfNull(adjustments);
         ArgumentNullException.ThrowIfNull(videoIdleAdapter);
+        ArgumentNullException.ThrowIfNull(powerModeAdapter);
         _productCatalog = adjustments;
         ProfileOptions = Array.AsReadOnly(profiles.Profiles.ToArray());
         _selectedProfile = ProfileOptions.First(profile => profile.Id == "balanced");
@@ -124,6 +126,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
         _videoIdleOperationService = new VideoIdleOperationService(
             videoIdleAdapter,
             new JsonVideoIdleOperationStore(Path.Combine(historyDirectory, "RealVideoIdle")));
+        PowerMode = new PowerModePanelViewModel(powerModeAdapter, historyDirectory);
 
         ConsentDecisions = [];
         History = [];
@@ -140,6 +143,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
     public ObservableCollection<ConsentDecisionViewModel> ConsentDecisions { get; }
     public ObservableCollection<OperationHistoryItem> History { get; }
     public ObservableCollection<VideoIdleHistoryItem> VideoIdleHistory { get; }
+    public PowerModePanelViewModel PowerMode { get; }
     public RelayCommand BuildPlanCommand { get; }
     public AsyncRelayCommand SimulateCommand { get; }
     public RelayCommand<OperationHistoryItem> ReviewResumeCommand { get; }
@@ -267,6 +271,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
         {
             var entries = await _journalStore.LoadAllAsync();
             var videoIdleEntries = await _videoIdleOperationService.LoadHistoryAsync();
+            await PowerMode.LoadHistoryAsync();
             VideoIdleHistory.Clear();
             foreach (var entry in videoIdleEntries)
             {

@@ -15,6 +15,7 @@ Anexe exatamente esses dois arquivos. Não anexe `bin`, `obj`, logs locais, rela
 - Versão experimental; não validada em outro computador.
 - Instalação e desinstalação foram testadas no PC de desenvolvimento; o app não foi aberto nesse teste.
 - O aplicativo inicia em diagnóstico. Não aplica otimizações automaticamente.
+- O recurso de modo de energia configurado está no código posterior de desenvolvimento 0.6; não está incluído nos pacotes 0.5.0 desta tag.
 - VIDEOIDLE não foi aplicado. Nenhum ajuste de energia, Registro, política, rede, serviço ou driver foi aplicado.
 - Os 39 checks locais incluem simulações; não comprovam ganhos de desempenho, compatibilidade ampla ou reversão real de ajustes.
 - O Inno Setup informou `Non-commercial use only`; revisar os [termos oficiais](https://jrsoftware.org/isorder.php) antes de qualquer uso comercial.
@@ -22,7 +23,7 @@ Anexe exatamente esses dois arquivos. Não anexe `bin`, `obj`, logs locais, rela
 ## Publicar pelo site
 
 1. Abra [Nova Release](https://github.com/icalixtozx/otimizador-calixto/releases/new) com uma conta que tenha acesso ao repositório.
-2. Selecione a tag existente `v0.5.0-experimental`. Ela identifica a revisão versionada que precede o próximo módulo de desenvolvimento; não crie a tag a partir do `main` atual se o código já tiver avançado.
+2. Selecione a tag existente `v0.5.0-experimental`. ZIP e instalador correspondem a essa revisão. O `main` atual avançou para desenvolvimento 0.6.0 e inclui modo de energia; não crie nem mova a tag para o `main` atual.
 3. Use o título **Calixto Optimizer 0.5.0 experimental**.
 4. Anexe o ZIP e o Setup listados acima.
 5. Marque **Set as a pre-release** e não marque a versão como a última estável.

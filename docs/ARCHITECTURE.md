@@ -2,10 +2,10 @@
 
 ## Aplicação e privilégios
 
-- `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos e o serviço de operação VIDEOIDLE.
-- `Optimizer.Windows` consulta WMI e implementa o adaptador de energia Win32 PowrProf. A classe tem métodos de leitura e escrita, mas criar o adaptador não chama as APIs.
-- `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. A leitura/captura VIDEOIDLE só ocorre após clique explícito; a UI não expõe aplicação nem reversão.
-- `BlockedVideoIdleMutationPolicy` é o default de escrita e sempre nega. Não há serviço, worker elevado, tarefa privilegiada ou daemon.
+- `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos, VIDEOIDLE e operações AC/DC do modo de energia configurado.
+- `Optimizer.Windows` consulta WMI e implementa adaptadores Win32 PowrProf. Criar os adaptadores não chama setters.
+- `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. Leitura/captura real de VIDEOIDLE e modo de energia só ocorre após clique explícito; a UI não expõe aplicação nem reversão.
+- As políticas de mutação real negam por padrão. Não há serviço, worker elevado, tarefa privilegiada ou daemon.
 - `Optimizer.Core.Tests` executa cenários com adaptador/storage falsos; o harness não chama PowrProf.
 
 ## Simulação e operação real
@@ -14,9 +14,11 @@ A fixture sintética permanece em catálogo separado e só grava um resultado ex
 
 VIDEOIDLE usa outro fluxo e outro subdiretório de histórico. A prévia consulta o estado real sem alteração. A captura persiste o esquema ativo e o índice AC anterior, sem representar backup do Windows. O serviço de aplicação exige política habilitada e confirmação específica. Mesmo assim, o app atual injeta política bloqueada e não apresenta comando de escrita.
 
+O modo de energia usa as funções `PowerGet/SetUserConfigured{AC,DC}PowerMode`, em outro serviço e histórico `RealPowerMode`. Os valores AC e DC são capturados e comparados separadamente. Esse estado é a preferência configurada pelo usuário, não leitura da preferência efetiva. O Windows pode sobrepor o sinal. Somente Windows 11 desktop com a API documentada disponível pode ser revisado. O app apresenta consequências e consentimento por lado; setters não são expostos pela UI, e a política padrão os nega.
+
 A aplicação persiste o ponto de recuperação antes da chamada nativa, verifica conflito antes da escrita, muda somente AC, solicita ativação do mesmo plano e verifica por leitura posterior. Reversão exige estado atual igual ao valor proposto e restaura o valor AC original. Mudança concorrente após a última leitura ainda é uma limitação porque as APIs não oferecem transação/CAS. Qualquer estado ambíguo exige revisão manual.
 
-O histórico usa `%LOCALAPPDATA%\CalixtoOptimizer\History`; capturas VIDEOIDLE ficam em `RealVideoIdle`, separado de `JsonOperationJournalStore` da demonstração. Fingerprint detecta corrupção/divergência acidental, não dá autenticidade contra o próprio usuário que controla a pasta. Nenhum worker privilegiado pode confiar nessa pasta como canal de comando.
+O histórico usa `%LOCALAPPDATA%\CalixtoOptimizer\History`; capturas VIDEOIDLE ficam em `RealVideoIdle` e modo de energia em `RealPowerMode`, separados de `JsonOperationJournalStore` da demonstração. Fingerprint detecta corrupção/divergência acidental, não dá autenticidade contra o próprio usuário que controla a pasta. Nenhum worker privilegiado pode confiar nessa pasta como canal de comando.
 
 ## Inventário
 
