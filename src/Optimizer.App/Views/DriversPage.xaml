@@ -51,6 +51,7 @@
         <StackPanel Grid.Column="1" Margin="10,0,9,0" VerticalAlignment="Center">
           <TextBlock Text="{Binding StatusMessage}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" />
           <TextBlock Text="{Binding CollectedAtLabel}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+          <TextBlock Text="Códigos PnP são valores informados pelo Windows; um código não prova, sozinho, que falta um driver. A versão/data também não é comparada a um catálogo externo." FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
         </StackPanel>
         <ProgressBar Grid.Column="2" Width="55" Height="3" IsIndeterminate="True"
                      Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" VerticalAlignment="Center" />
@@ -64,7 +65,7 @@
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
         <TextBlock Text="{Binding DriverCountLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#555555" />
-        <TextBlock Text="  ·  IDs pessoais são omitidos no CSV" FontSize="10" Foreground="#888888" />
+        <TextBlock Text="  ·  O CSV omite IDs PnP" FontSize="10" Foreground="#888888" />
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal">
         <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="11,0" Margin="0,0,9,0">
@@ -109,12 +110,12 @@
             <DataGridTextColumn Header="VERSÃO" Binding="{Binding Version, TargetNullValue=—}" Width="1.2*" />
             <DataGridTextColumn Header="DATA INFORMADA" Binding="{Binding DriverDateRaw, TargetNullValue=—}" Width="1.3*" />
             <DataGridTextColumn Header="INF" Binding="{Binding InfName, TargetNullValue=—}" Width="1.1*" />
-            <DataGridTemplateColumn Header="ASSINATURA" Width="1.15*">
+            <DataGridTemplateColumn Header="DADOS DO DRIVER" Width="1.35*">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate>
                   <Border CornerRadius="6" Padding="8,4" HorizontalAlignment="Left"
                           Background="{Binding IsSigned, Converter={StaticResource SignatureBackgroundConverter}}">
-                    <TextBlock Text="{Binding IsSigned, Converter={StaticResource SignatureLabelConverter}}" FontSize="10" FontWeight="SemiBold"
+                    <TextBlock Text="{Binding DriverDetailsStatus}" FontSize="10" FontWeight="SemiBold"
                                Foreground="{Binding IsSigned, Converter={StaticResource SignatureForegroundConverter}}" />
                   </Border>
                 </DataTemplate>
@@ -123,7 +124,7 @@
             <DataGridTemplateColumn Header="ESTADO PnP" Width="1*">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate>
-                  <TextBlock Text="{Binding ProblemCode, Converter={StaticResource ProblemCodeConverter}}" FontSize="10"
+                  <TextBlock Text="{Binding ProblemCodeLabel}" FontSize="10"
                              Foreground="{Binding ProblemCode, Converter={StaticResource ProblemForegroundConverter}}" VerticalAlignment="Center" />
                 </DataTemplate>
               </DataGridTemplateColumn.CellTemplate>

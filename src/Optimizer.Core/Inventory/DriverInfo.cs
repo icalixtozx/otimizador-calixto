@@ -1,8 +1,8 @@
 namespace Optimizer.Core.Inventory;
 
 /// <summary>
-/// A driver row reported by Windows. DeviceId is retained only for in-memory
-/// correlation with Plug and Play data; user-facing exports omit it.
+/// Driver data reported by Windows. DeviceId is retained only in memory for
+/// correlating Plug and Play data; it must never be displayed or exported.
 /// </summary>
 public sealed record DriverInfo(
     string DeviceName,
@@ -13,4 +13,19 @@ public sealed record DriverInfo(
     string? InfName,
     bool? IsSigned,
     string? Signer,
-    int? ProblemCode);
+    int? ProblemCode,
+    bool DriverMetadataAvailable = true)
+{
+    public string DriverDetailsStatus => !DriverMetadataAvailable
+        ? "Detalhes do driver não retornados"
+        : IsSigned switch
+        {
+            true => "Driver assinado",
+            false => "Driver sem assinatura reportada",
+            _ => "Assinatura não informada"
+        };
+
+    public string ProblemCodeLabel => ProblemCode is int code
+        ? $"PnP {code} reportado pelo Windows"
+        : "Código PnP não informado";
+}

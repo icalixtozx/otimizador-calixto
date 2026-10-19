@@ -1,58 +1,48 @@
 # Instalador experimental
 
-`CalixtoOptimizer.iss` empacota a publicação autocontida Windows x64 v0.4.0-experimental de `artifacts/release-v0.4.0-experimental/CalixtoOptimizer`.
+CalixtoOptimizer.iss empacota a publicação autocontida Windows x64 0.5.0-experimental de artifacts/release-v0.5.0-experimental/CalixtoOptimizer.
 
-## Procedimento de compilação
+## Estado do compilador
 
-Na raiz do repositório, após disponibilizar o compilador Inno Setup:
+O Inno Setup não está instalado neste ambiente: ISCC.exe não apareceu no PATH nem nos diretórios padrão de instalação 6/7. Portanto, o script ainda não foi compilado e o EXE do instalador não foi produzido. Instalação e desinstalação permanecem não testadas.
 
-```powershell
-dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.4.0-experimental\CalixtoOptimizer
-ISCC.exe .\packaging\CalixtoOptimizer.iss
-```
+## Inno Setup verificado em 2026-10-19
 
-O EXE esperado será `artifacts/installer/CalixtoOptimizer-0.4.0-experimental-win-x64-setup.exe`. Confirme existência, tamanho, hash e código de saída 0 do `ISCC.exe`. Ainda será necessário testar instalação e desinstalação em uma VM/PC Windows limpa; a compilação do `.iss` não é teste de instalação.
+A página de downloads do fornecedor lista como versão estável mais recente Inno Setup 7.1.0 x64, publicado em 2026-08-12. O comando interativo anunciado pelo próprio fornecedor usa o ID exato JRSoftware.InnoSetup.7. winget show --id JRSoftware.InnoSetup.7 -e -s winget retornou versão 7.1.0, licença “Inno Setup License”, fornecedor jrsoftware.org e instalador do GitHub oficial; a atualização da fonte WinGet falhou nesta consulta, mas o manifesto local disponível foi retornado e corresponde à listagem oficial do fornecedor.
 
-## Disponibilizar o Inno Setup
+O fornecedor orienta validar Authenticode no Windows: assinatura válida e publicador Pyrsys B.V. A página oficial também documenta attestations da Release GitHub e a forma gh release verify-asset. Não executei instalador de Inno nem verifiquei arquivo baixado porque ele ainda não está instalado/baixado.
 
-O fornecedor oficial lista Inno Setup 7.1.0 e orienta instalação interativa por WinGet com:
+O texto da Inno Setup License permite uso e redistribuição, inclusive comercial, sob quatro condições: preservar avisos/condições ao redistribuir fonte; manter avisos e endereços no binário; não alegar autoria do Inno Setup; e marcar versões modificadas. Separadamente, o fornecedor pede que usuários comerciais comprem uma licença comercial; a página de licenças diz que não espera compra antes de o instalador estar pronto para produção. Segundo essa orientação, não se espera compra para este teste experimental pré-produção.
 
-```powershell
-winget install --id JRSoftware.InnoSetup.7 -e -s winget -i
-```
+## Uma ação para disponibilizar o compilador
 
-Como alternativa, baixe pelo [site oficial](https://jrsoftware.org/isdl.php). O fornecedor informa que o instalador publicado tem assinatura Authenticode; abra Propriedades → Assinaturas Digitais e confirme a assinatura válida e o publicador `Pyrsys B.V.` antes de usar. Não baixe `ISCC.exe` de sites de terceiros.
+Após sua confirmação, execute no PowerShell:
 
-Depois da instalação, confira o caminho:
+    winget install --id JRSoftware.InnoSetup.7 -e -s winget -i
 
-```powershell
-Get-Command ISCC.exe
-Test-Path "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
-```
+Esse comando é interativo. Não o executei, pois instalar a ferramenta depende da sua confirmação.
 
-Se o diretório não estiver no `PATH`, invoque diretamente:
+## Compilar o instalador depois da instalação
 
-```powershell
-& "$env:ProgramFiles\Inno Setup 7\ISCC.exe" .\packaging\CalixtoOptimizer.iss
-```
+Na raiz do repositório, com a publicação atualizada:
 
-A página oficial descreve `ISCC.exe <arquivo.iss>`; código 0 indica compilação bem-sucedida, 1 erro de argumento/fatal e 2 falha de compilação.
+    dotnet publish .\src\Optimizer.App\Optimizer.App.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\release-v0.5.0-experimental\CalixtoOptimizer
+    ISCC.exe .\packaging\CalixtoOptimizer.iss
 
-## Procedência, licença e privilégios
+O EXE esperado é artifacts/installer/CalixtoOptimizer-0.5.0-experimental-win-x64-setup.exe. A documentação oficial confirma ISCC.exe <script.iss> e usa código de saída zero para sucesso; depois é preciso conferir arquivo, tamanho e SHA-256. Compilar o .iss não é teste de instalação. Não declarar instalação/desinstalação verificadas até executar ambas em Windows de teste.
 
-Inno Setup é publicado por Jordan Russell/Martijn Laan, é open source e tem código-fonte ligado pelo fornecedor ao GitHub oficial. A página do fornecedor pede licença comercial para usuários comerciais; sua FAQ diz que não é esperado comprá-la antes de o instalador estar pronto para produção. Confira e cumpra os termos comerciais vigentes antes de distribuir comercialmente. Esta nota não é parecer jurídico.
+## Privilégios do instalador
 
-- `PrivilegesRequired=lowest` instala sem UAC em `%LOCALAPPDATA%\Programs\CalixtoOptimizer`.
-- O assistente usa mensagens oficiais de Português Brasileiro.
-- O instalador não inicia o app nem instala serviço, tarefa privilegiada ou worker.
+- PrivilegesRequired=lowest instala por usuário em %LOCALAPPDATA%\Programs\CalixtoOptimizer.
+- O instalador não inicia o app nem cria serviço, tarefa privilegiada ou worker.
 - A pasta do app é gravável pelo usuário. Um futuro worker elevado não pode ser colocado ali; exigiria localização protegida, ACL adequada e protocolo autenticado.
-- Histórico permanece em `%LOCALAPPDATA%\CalixtoOptimizer\History`; desinstalação não o apaga.
-- No ambiente atual, `ISCC.exe` não foi encontrado. Portanto, o EXE ainda não foi produzido e o script ainda não passou pelo compilador. Instalação e desinstalação não foram testadas.
+- Histórico permanece em %LOCALAPPDATA%\CalixtoOptimizer\History; o desinstalador não o apaga.
 
 Fontes oficiais:
 
-- [Downloads e verificação de autenticidade](https://jrsoftware.org/isdl.php)
-- [Verificar downloads](https://jrsoftware.org/isdl-verify.php)
+- [Downloads, última versão e instruções WinGet](https://jrsoftware.org/isdl.php)
+- [Verificação de autenticidade e assinaturas](https://jrsoftware.org/isdl-verify.php)
+- [Licença do Inno Setup](https://jrsoftware.org/files/is/license.txt)
 - [Licenças comerciais e estágio inicial](https://jrsoftware.org/isorder.php)
 - [Compilador ISCC e códigos de saída](https://jrsoftware.org/ishelp/topic_compilercmdline.htm)
 - [Instalação não administrativa](https://jrsoftware.org/ishelp/topic_admininstallmode.htm)

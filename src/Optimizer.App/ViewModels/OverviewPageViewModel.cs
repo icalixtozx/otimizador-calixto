@@ -8,6 +8,8 @@ public sealed class OverviewPageViewModel : ObservableObject
     private bool _isLoading;
     private string _statusText = "A análise ainda não foi executada.";
     private string? _errorMessage;
+    private DriverInventoryResult? _driverInventoryResult;
+    private PowerPlanInventoryResult? _powerPlanInventoryResult;
 
     public ComputerInventory? Inventory
     {
@@ -17,6 +19,8 @@ public sealed class OverviewPageViewModel : ObservableObject
             if (SetProperty(ref _inventory, value))
             {
                 OnPropertyChanged(nameof(WindowsLabel));
+                OnPropertyChanged(nameof(SanitizedDiagnosticJson));
+                OnPropertyChanged(nameof(HasDiagnosticData));
                 OnPropertyChanged(nameof(ProcessorLabel));
                 OnPropertyChanged(nameof(GraphicsLabel));
                 OnPropertyChanged(nameof(MemoryLabel));
@@ -28,6 +32,57 @@ public sealed class OverviewPageViewModel : ObservableObject
         }
     }
 
+    public DriverInventoryResult? DriverInventoryResult
+    {
+        get => _driverInventoryResult;
+        set
+        {
+            if (SetProperty(ref _driverInventoryResult, value))
+            {
+                OnPropertyChanged(nameof(SanitizedDiagnosticJson));
+                OnPropertyChanged(nameof(HasDiagnosticData));
+                OnPropertyChanged(nameof(HasDiagnosticData));
+            }
+        }
+    }
+
+    public PowerPlanInventoryResult? PowerPlanInventoryResult
+    {
+        get => _powerPlanInventoryResult;
+        set
+        {
+            if (SetProperty(ref _powerPlanInventoryResult, value))
+            {
+                OnPropertyChanged(nameof(PowerPlans));
+                OnPropertyChanged(nameof(PowerPlanStatusText));
+                OnPropertyChanged(nameof(HasPowerPlans));
+                OnPropertyChanged(nameof(HasPowerPlanWarnings));
+                OnPropertyChanged(nameof(SanitizedDiagnosticJson));
+                OnPropertyChanged(nameof(HasDiagnosticData));
+            }
+        }
+    }
+
+    public IReadOnlyList<PowerPlanInfo> PowerPlans => PowerPlanInventoryResult?.Plans ?? Array.Empty<PowerPlanInfo>();
+    public bool HasPowerPlans => PowerPlans.Count > 0;
+    public bool HasPowerPlanWarnings => PowerPlanInventoryResult?.Warnings.Count > 0;
+    public string PowerPlanStatusText => PowerPlanInventoryResult?.Availability switch
+    {
+        InventoryAvailability.Available => $"{PowerPlans.Count} planos enumerados por APIs nativas do Windows. Nenhuma configuração foi alterada.",
+        InventoryAvailability.Partial => PowerPlanInventoryResult.Warnings.FirstOrDefault() ?? "Lista parcial de planos de energia.",
+        InventoryAvailability.Failed => PowerPlanInventoryResult.ErrorMessage ?? "Não foi possível consultar os planos de energia.",
+        _ => "Planos de energia ainda não consultados."
+    };
+
+    public bool HasDiagnosticData => Inventory is not null || DriverInventoryResult is not null || PowerPlanInventoryResult is not null;
+    public string SanitizedDiagnosticJson => SanitizedDiagnosticReportBuilder.BuildJson(
+        Inventory,
+        DriverInventoryResult,
+        PowerPlanInventoryResult);
+
+    public string CollectedAtLabel => Inventory is null
+        ? "Aguardando inventário do computador."
+        : $"Inventário local em {Inventory.CollectedAtUtc.ToLocalTime():dd/MM/yyyy HH:mm}";
     public bool IsLoading { get => _isLoading; set => SetProperty(ref _isLoading, value); }
     public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
     public string? ErrorMessage { get => _errorMessage; set { if (SetProperty(ref _errorMessage, value)) OnPropertyChanged(nameof(HasError)); } }

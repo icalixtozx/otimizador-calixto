@@ -13,7 +13,8 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainWindowViewModel(
             new WmiComputerInventoryService(),
-            new WmiDriverInventoryService());
+            new WmiDriverInventoryService(),
+            new WindowsPowerPlanInventoryService());
         Loaded += MainWindow_Loaded;
     }
 

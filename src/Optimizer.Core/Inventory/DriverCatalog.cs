@@ -24,7 +24,7 @@ public static class DriverCatalog
     {
         ArgumentNullException.ThrowIfNull(drivers);
         var builder = new StringBuilder();
-        builder.AppendLine("Dispositivo,Fornecedor,Versão,Data informada,INF,Assinado,Assinante,Código de problema");
+        builder.AppendLine("Dispositivo,Fornecedor,Versão,Data informada,INF,Assinado,Assinante,Código PnP reportado pelo Windows");
 
         foreach (var driver in drivers)
         {

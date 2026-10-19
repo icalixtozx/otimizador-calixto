@@ -1,32 +1,42 @@
 # Calixto Optimizer
 
-Aplicativo local de diagnóstico de hardware/drivers para Windows e laboratório técnico de ajustes. É experimental e não foi validado em outro computador. O app inicia em diagnóstico; nenhuma mudança é aplicada automaticamente.
+Aplicativo experimental local para diagnóstico de hardware, dispositivos, drivers e energia no Windows. Inicia somente em diagnóstico e não aplica alterações automaticamente.
 
-## Estado real
+## Funcionalidades disponíveis
 
-- Inventário WMI de hardware/drivers e exportação CSV sanitizada continuam somente leitura.
+- Lista os planos de energia através de APIs PowrProf, marca o ativo e mostra valores VIDEOIDLE AC/DC em segundos.
+- Lê inventário local de dispositivos PnP e metadados de driver reportados pelo Windows: fornecedor, versão, data, INF, assinatura e código PnP.
+- Um código PnP é mostrado como dado reportado pelo Windows; o app não o converte automaticamente em “driver ausente”. Uma linha sem metadados de driver também não prova ausência de driver.
+- Não compara versões com catálogo externo e não classifica drivers como desatualizados.
+- Pré-visualiza um relatório JSON sanitizado antes de oferecer a gravação escolhida pelo usuário. O relatório não é enviado.
 - Interface em português, alto contraste preto e branco.
-- Catálogo de desempenho para os perfis permanece sem ajustes habilitados. A demonstração sintética, separada e desligada por padrão, só exercita simulação em memória.
-- VIDEOIDLE é o primeiro adaptador técnico: leitura real e captura persistida sob clique explícito. A aplicação/reversão foram codificadas no Core, mas continuam bloqueadas por padrão e não estão expostas como ação no app.
-- A captura VIDEOIDLE é o índice AC do plano ativo, não inclui bateria/DC e não é backup do Windows. Histórico técnico fica separado da demonstração.
-- O pacote é v0.4.0 experimental, portátil autocontido Windows x64. Não validado em outro PC.
-- Script Inno Setup por usuário existe em `packaging/`; o EXE do instalador ainda não foi produzido enquanto `ISCC.exe` não estiver disponível.
+- A demonstração sintética é separada e desligada por padrão.
 
-Veja [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md) e [instruções do instalador](packaging/README-INSTALADOR.md).
+## Estado do VIDEOIDLE
+
+VIDEOIDLE é um teste técnico do motor, não uma otimização de desempenho. Prévia real e captura persistida são acionadas explicitamente. Aplicação e reversão do índice AC estão bloqueadas no app por padrão e não têm ação exposta na interface. Não há leitura ou escrita automática ao iniciar.
+
+A captura técnica não inclui bateria/DC, não é backup do Windows e fica separada da demonstração. Nenhum ajuste, driver, Registro, política, serviço, rede, prioridade ou firmware foi alterado para desenvolver ou gerar este pacote.
+
+## Distribuição experimental
+
+Versão 0.5.0-experimental, ZIP autocontido Windows x64. Ainda não validada em outro computador. A fonte do instalador Inno Setup está em packaging/; o EXE depende da disponibilização do compilador. Instalação e desinstalação não foram testadas.
+
+Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md) e [instruções do instalador](packaging/README-INSTALADOR.md).
 
 ## Segurança e limitações
 
-Aplicar e reverter real exigem uma política habilitada e aprovação específica, vinculada à operação, ação, fingerprint da captura, consequência e frase de confirmação. O app distribui e injeta a política que sempre bloqueia. Aprovação da demonstração sintética nunca habilita escrita real.
+A leitura local requer apenas as permissões que o Windows conceder ao processo. O app não solicita elevação. Falhas ou dados parciais são reportados; não são tratados como sucesso.
 
-O mecanismo persiste uma intenção antes da primeira escrita, recusa conflitos observados e verifica por nova leitura. As APIs não oferecem operação transacional/comparação atômica, então uma mudança concorrente entre a última leitura e a chamada nativa ainda pode requerer revisão manual. A captura local não é autenticada nem protegida contra edição pelo mesmo usuário. Não existe worker elevado.
+O protocolo codificado para escrita persiste a intenção antes da mutação, recusa conflitos observados e verifica por leitura posterior. As APIs não oferecem operação transacional/comparação atômica, então uma mudança concorrente entre a última leitura e a chamada nativa ainda pode exigir revisão manual. A captura local não é autenticada nem protegida contra edição pelo mesmo usuário. Não existe worker elevado.
 
 Processos, Registro, políticas, rede, instalação assistida de drivers e integrações de GPU continuam indisponíveis. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
 
 ## Ambiente
 
-- Windows 10+ x64 para o aplicativo distribuído; alvo `net10.0-windows`.
-- SDK .NET 10.0.100 ou faixa de recursos mais recente conforme `global.json`.
-- Inventário usa `System.Management 10.0.12`.
+- Windows 10+ x64 para o aplicativo distribuído; alvo net10.0-windows.
+- SDK .NET 10.0.100 ou faixa de recursos mais recente conforme global.json.
+- Inventário usa System.Management 10.0.12.
 - ZIP autocontido inclui runtime .NET; publicação e startup local não equivalem a teste de instalação nem validação em outro PC.
 
 Instale o SDK pelo canal oficial: [Instalar .NET no Windows](https://learn.microsoft.com/dotnet/core/install/windows). Consulte [releases e suporte do .NET](https://learn.microsoft.com/dotnet/core/releases-and-support).
@@ -35,26 +45,22 @@ Instale o SDK pelo canal oficial: [Instalar .NET no Windows](https://learn.micro
 
 Na raiz do repositório:
 
-~~~powershell
-dotnet restore .\CalixtoOptimizer.sln
-dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore
-dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
-dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
-~~~
+    dotnet restore .\CalixtoOptimizer.sln
+    dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore
+    dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
+    dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 
-O harness testa catálogo/perfis/consentimento/diário/simulação e o fluxo VIDEOIDLE usando somente adaptadores e storage falsos. Ele não chama as APIs reais de escrita do Windows e não comprova reversão real.
+O harness Core cobre catálogo/perfis/consentimento/diário/simulação e o fluxo VIDEOIDLE com adaptadores falsos. Ele não chama APIs de escrita nem comprova reversão real. A enumeração de energia e as consultas WMI foram validadas separadamente no Windows local, somente leitura.
 
 ## Estrutura
 
-~~~text
-src/Optimizer.App/          WPF, navegação e interface
-src/Optimizer.Core/         inventário, catálogo, perfis e fluxo de operações
-src/Optimizer.Windows/      inventário WMI e adaptador PowrProf VIDEOIDLE
-tests/Optimizer.Core.Tests/ harness com falhas e adaptadores simulados
-docs/                       arquitetura, catálogo, recuperação e progresso
-packaging/                  fonte do Inno Setup e documentação
-~~~
+    src/Optimizer.App/          WPF, navegação e interface
+    src/Optimizer.Core/         inventário, catálogo, perfis e fluxo de operações
+    src/Optimizer.Windows/      WMI, inventário PowrProf e adaptador VIDEOIDLE
+    tests/Optimizer.Core.Tests/ harness Core com falhas e adaptadores simulados
+    docs/                       arquitetura, diagnóstico, catálogo, recuperação e progresso
+    packaging/                  fonte do Inno Setup e documentação
 
 ## Privacidade
 
-Não há conta, servidor ou telemetria remota. IDs PnP ficam em memória e não entram no CSV. Histórico técnico é gravado somente após captura explícita em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle`; contém apenas o GUID do plano, valores AC do ajuste, estado e timestamps. Revise qualquer arquivo antes de compartilhá-lo.
+Não há conta, servidor ou telemetria remota. IDs PnP são mantidos somente em memória para cruzar as consultas e não entram no CSV ou JSON. O JSON também omite GUIDs de planos, nomes da conta/computador, números de série, endereços de rede e caminhos locais; ainda contém nomes/modelos de componentes e drivers. Revise a prévia antes de salvar ou compartilhar. Histórico técnico VIDEOIDLE só é gravado após captura explícita em %LOCALAPPDATA%\CalixtoOptimizer\History\RealVideoIdle.

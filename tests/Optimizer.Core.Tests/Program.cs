@@ -10,6 +10,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("signature filter keeps unknown separate", () => RunSync(SignatureFilterKeepsUnknownSeparate)),
     ("CSV escapes fields and omits device identifiers", () => RunSync(CsvIsSanitized)),
     ("CSV neutralizes spreadsheet formulas", () => RunSync(CsvNeutralizesFormulaCells)),
+    ("diagnostic JSON omits hardware identifiers and keeps PnP codes neutral", () => RunSync(DiagnosticJsonIsSanitizedAndNeutral)),
+    ("PnP codes and missing metadata are presented without diagnosis", () => RunSync(PnpStatusRemainsNeutral)),
     ("catalog rejects duplicate stable IDs", () => RunSync(CatalogRejectsDuplicateIds)),
     ("plan blocks incompatible and unknown adjustments", () => RunSync(PlanBlocksIncompatibleAndUnknown)),
     ("plan fingerprint binds consequence and risk metadata", () => RunSync(PlanFingerprintBindsConsequences)),
@@ -105,6 +107,59 @@ static IReadOnlyList<DriverInfo> SampleDrivers() =>
     new("Unknown sample device", "SAMPLE\\UNKNOWN-003", null, null, null, null, null, null, null)
 ];
 
+
+static void DiagnosticJsonIsSanitizedAndNeutral()
+{
+    var deviceId = "PCI\\VEN_1234&DEV_ABCD\\SERIAL-PRIVATE";
+    var schemeId = Guid.Parse("2f7fa2dd-bc0a-467a-8635-c1fa2355d169");
+    var computer = new ComputerInventory(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        "Windows Example",
+        "Professional",
+        "25H2",
+        "99999.1",
+        "X64",
+        "Example CPU",
+        ["Example GPU"],
+        "16 GiB",
+        "Example Board",
+        ["Example Disk"],
+        ["Example Network Adapter"],
+        []);
+    var drivers = new DriverInventoryResult(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        InventoryAvailability.Available,
+        [new DriverInfo("Example Device", deviceId, "Example Vendor", "1.2.3", null, "sample.inf", true, "Example Signer", 28)],
+        [],
+        null);
+    var power = new PowerPlanInventoryResult(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        InventoryAvailability.Available,
+        [new PowerPlanInfo(schemeId, "Example Plan", true, 180, 180)],
+        [],
+        null);
+
+    var json = SanitizedDiagnosticReportBuilder.BuildJson(
+        computer, drivers, power, DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
+
+    Assert(!json.Contains(deviceId, StringComparison.Ordinal), "diagnostic JSON must omit the PnP device ID");
+    Assert(!json.Contains(schemeId.ToString(), StringComparison.OrdinalIgnoreCase), "diagnostic JSON must omit power scheme GUIDs");
+    Assert(!json.Contains("SERIAL-PRIVATE", StringComparison.Ordinal), "diagnostic JSON must omit serial-like identifiers");
+    Assert(json.Contains("\"problemCodeWindowsReported\": 28", StringComparison.Ordinal), "diagnostic must preserve the numeric code");
+    Assert(json.Contains("Revise os nomes de hardware antes de compartilhar", StringComparison.Ordinal), "diagnostic must warn the user to review before sharing");
+    Assert(!json.Contains("driverMissing", StringComparison.OrdinalIgnoreCase), "diagnostic must not infer a missing driver");
+}
+
+static void PnpStatusRemainsNeutral()
+{
+    var reported = new DriverInfo("Example Device", "PRIVATE\\DEVICE-ID", null, null, null, null, null, null, 28);
+    var absentMetadata = new DriverInfo("Example PnP Device", "PRIVATE\\OTHER-ID", null, null, null, null, null, null, 0, DriverMetadataAvailable: false);
+
+    Assert(reported.ProblemCodeLabel == "PnP 28 reportado pelo Windows", "positive code should be shown as reported data");
+    Assert(!reported.ProblemCodeLabel.Contains("ausente", StringComparison.OrdinalIgnoreCase), "code label must not infer a missing driver");
+    Assert(absentMetadata.DriverDetailsStatus == "Detalhes do driver não retornados", "missing query metadata should be explicit but neutral");
+    Assert(absentMetadata.ProblemCodeLabel == "PnP 0 reportado pelo Windows", "zero should remain a reported code");
+}
 static void CsvNeutralizesFormulaCells()
 {
     var row = new DriverInfo("=HYPERLINK(\"https://example.invalid\")", null, "+Vendor", null, null, null, null, null, null);

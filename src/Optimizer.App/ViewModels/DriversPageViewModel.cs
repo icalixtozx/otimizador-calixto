@@ -40,6 +40,7 @@ public sealed class DriversPageViewModel : ObservableObject
         ExportCommand = new RelayCommand(ExportFilteredDrivers, () => FilteredDrivers.Count > 0);
     }
 
+    public DriverInventoryResult? LastResult { get; private set; }
     public ObservableCollection<SignatureFilterOption> FilterOptions { get; }
     public ObservableCollection<DriverInfo> FilteredDrivers { get; } = [];
     public AsyncRelayCommand ReloadCommand { get; }

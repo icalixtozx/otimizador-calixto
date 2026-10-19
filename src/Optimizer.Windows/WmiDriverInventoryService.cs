@@ -27,7 +27,7 @@ public sealed class WmiDriverInventoryService : IDriverInventoryService
                 ReadNullableBoolean(item["IsSigned"]),
                 ReadString(item["Signer"]),
                 ProblemCode: null)),
-            "Não foi possível consultar os drivers assinados do Windows.",
+            "Não foi possível consultar os metadados de driver reportados pelo Windows.",
             warnings,
             cancellationToken);
 
@@ -41,33 +41,45 @@ public sealed class WmiDriverInventoryService : IDriverInventoryService
                 warnings[0]);
         }
 
-        var problemCodes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var driverIndexById = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < drivers.Count; index++)
+        {
+            if (!string.IsNullOrWhiteSpace(drivers[index].DeviceId))
+                driverIndexById.TryAdd(drivers[index].DeviceId!, index);
+        }
+
         var devicesRead = TryRead(
-            "SELECT PNPDeviceID, ConfigManagerErrorCode FROM Win32_PnPEntity",
+            "SELECT PNPDeviceID, Name, ConfigManagerErrorCode FROM Win32_PnPEntity",
             item =>
             {
                 var id = ReadString(item["PNPDeviceID"]);
+                var name = ReadString(item["Name"])?.Trim();
                 var code = ReadNullableInt32(item["ConfigManagerErrorCode"]);
-                if (!string.IsNullOrWhiteSpace(id) && code is not null)
+                if (string.IsNullOrWhiteSpace(id)) return;
+
+                if (driverIndexById.TryGetValue(id, out var existingIndex))
                 {
-                    problemCodes[id] = code.Value;
+                    drivers[existingIndex] = drivers[existingIndex] with { ProblemCode = code };
+                    return;
                 }
+
+                if (string.IsNullOrWhiteSpace(name)) name = "Dispositivo sem nome informado";
+                driverIndexById[id] = drivers.Count;
+                drivers.Add(new DriverInfo(
+                    name,
+                    id,
+                    Provider: null,
+                    Version: null,
+                    DriverDateRaw: null,
+                    InfName: null,
+                    IsSigned: null,
+                    Signer: null,
+                    ProblemCode: code,
+                    DriverMetadataAvailable: false));
             },
-            "Não foi possível verificar os códigos de problema dos dispositivos Plug and Play.",
+            "Não foi possível consultar todos os dispositivos Plug and Play ou seus códigos informados pelo Windows.",
             warnings,
             cancellationToken);
-
-        if (problemCodes.Count > 0)
-        {
-            for (var index = 0; index < drivers.Count; index++)
-            {
-                var driver = drivers[index];
-                if (driver.DeviceId is not null && problemCodes.TryGetValue(driver.DeviceId, out var code))
-                {
-                    drivers[index] = driver with { ProblemCode = code };
-                }
-            }
-        }
 
         var availability = devicesRead ? InventoryAvailability.Available : InventoryAvailability.Partial;
         return new DriverInventoryResult(

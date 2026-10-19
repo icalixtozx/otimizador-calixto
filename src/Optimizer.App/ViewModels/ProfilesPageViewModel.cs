@@ -181,7 +181,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
     }
     public string VideoIdlePreviewText => VideoIdlePreview is null
         ? "Ainda sem leitura do valor real."
-        : $"Plano ativo {VideoIdlePreview.ActiveSchemeId:D} · AC atual {VideoIdlePreview.CurrentAcTimeoutSeconds} s · proposta {VideoIdlePreview.ProposedAcTimeoutSeconds} s · leitura {VideoIdlePreview.ReadAtUtc.ToLocalTime():g}.";
+        : $"Plano ativo lido · AC atual {VideoIdlePreview.CurrentAcTimeoutSeconds} s · proposta {VideoIdlePreview.ProposedAcTimeoutSeconds} s · leitura {VideoIdlePreview.ReadAtUtc.ToLocalTime():g}.";
     public string VideoIdleStatusMessage
     {
         get => _videoIdleStatusMessage;
@@ -274,7 +274,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
                     entry,
                     GetVideoIdleStateLabel(entry.State),
                     entry.CapturedAtUtc.ToLocalTime().ToString("g"),
-                    $"Plano {entry.ActiveSchemeId:D} · AC capturado {entry.PreviousAcTimeoutSeconds} s · proposta {entry.ProposedAcTimeoutSeconds} s. {entry.Detail}"));
+                    $"Plano ativo capturado · AC {entry.PreviousAcTimeoutSeconds} s · proposta {entry.ProposedAcTimeoutSeconds} s. {entry.Detail}"));
             }
             if (videoIdleEntries.Count > 0)
             {

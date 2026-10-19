@@ -9,14 +9,16 @@ namespace Optimizer.App.ViewModels;
 public sealed class MainWindowViewModel : ObservableObject
 {
     private readonly IComputerInventoryService _computerInventoryService;
+    private readonly IPowerPlanInventoryService _powerPlanInventoryService;
     private object _currentPage;
     private string _selectedNavigationKey = "overview";
     private string _pageTitle = "Visão geral";
     private bool _isScanning;
 
-    public MainWindowViewModel(IComputerInventoryService computerInventoryService, IDriverInventoryService driverInventoryService)
+    public MainWindowViewModel(IComputerInventoryService computerInventoryService, IDriverInventoryService driverInventoryService, IPowerPlanInventoryService powerPlanInventoryService)
     {
         _computerInventoryService = computerInventoryService;
+        _powerPlanInventoryService = powerPlanInventoryService;
         Overview = new OverviewPageViewModel();
         Drivers = new DriversPageViewModel(driverInventoryService);
         Profiles = new ProfilesPageViewModel(
@@ -105,16 +107,21 @@ public sealed class MainWindowViewModel : ObservableObject
         IsScanning = true;
         Overview.ErrorMessage = null;
         Overview.Inventory = null;
+        Overview.DriverInventoryResult = null;
+        Overview.PowerPlanInventoryResult = null;
         Overview.StatusText = "Analisando hardware e drivers localmente…";
 
         try
         {
             var computerTask = _computerInventoryService.CollectAsync();
             var driversTask = Drivers.LoadAsync();
-            await Task.WhenAll(computerTask, driversTask);
+            var powerPlansTask = Task.Run(() => _powerPlanInventoryService.Collect());
+            await Task.WhenAll(computerTask, driversTask, powerPlansTask);
 
             var result = await computerTask;
             Overview.Inventory = result.Inventory;
+            Overview.DriverInventoryResult = Drivers.LastResult;
+            Overview.PowerPlanInventoryResult = await powerPlansTask;
             Overview.ErrorMessage = result.ErrorMessage;
             Overview.StatusText = result.Inventory is null
                 ? "A análise terminou sem dados de hardware."
