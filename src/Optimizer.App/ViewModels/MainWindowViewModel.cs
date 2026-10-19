@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using Optimizer.Core.Inventory;
+using Optimizer.Core.Adjustments;
+using Optimizer.Core.Profiles;
 
 namespace Optimizer.App.ViewModels;
 
@@ -16,16 +18,17 @@ public sealed class MainWindowViewModel : ObservableObject
         _computerInventoryService = computerInventoryService;
         Overview = new OverviewPageViewModel();
         Drivers = new DriversPageViewModel(driverInventoryService);
+        Profiles = new ProfilesPageViewModel(OptimizerProfileCatalog.CreateDefault(), new AdjustmentCatalog([]));
         _currentPage = Overview;
         NavigationItems =
         [
             new("overview", "Visão geral", "◧", true, null, true),
             new("drivers", "Drivers", "▦", true, null),
-            new("profiles", "Perfis", "◉", false, "Depois"),
+            new("profiles", "Planos", "◉", true, null),
             new("tweaks", "Ajustes", "⌁", false, "Depois"),
             new("games", "Jogos", "◇", false, "Depois"),
             new("network", "Rede", "⌘", false, "Depois"),
-            new("history", "Histórico", "↺", false, "Depois"),
+            new("history", "Histórico", "↺", true, null),
             new("settings", "Configurações", "⚙", false, "Depois")
         ];
         NavigateCommand = new RelayCommand<string>(Navigate);
@@ -34,6 +37,7 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public OverviewPageViewModel Overview { get; }
     public DriversPageViewModel Drivers { get; }
+    public ProfilesPageViewModel Profiles { get; }
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public RelayCommand<string> NavigateCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
@@ -53,7 +57,11 @@ public sealed class MainWindowViewModel : ObservableObject
         }
     }
 
-    public async Task InitializeAsync() => await RefreshAsync();
+    public async Task InitializeAsync()
+    {
+        await RefreshAsync();
+        await Profiles.LoadHistoryAsync();
+    }
 
     private void Navigate(string? key)
     {
@@ -70,6 +78,15 @@ public sealed class MainWindowViewModel : ObservableObject
             PageTitle = "Drivers";
             CurrentPage = Drivers;
             UpdateSelectedNavigation(key);
+        }
+        else if (key is "profiles" or "history")
+        {
+            SelectedNavigationKey = key;
+            Profiles.SelectedSectionIndex = key == "history" ? 1 : 0;
+            PageTitle = key == "history" ? "Histórico" : "Planos";
+            CurrentPage = Profiles;
+            UpdateSelectedNavigation(key);
+            _ = Profiles.LoadHistoryAsync();
         }
     }
 

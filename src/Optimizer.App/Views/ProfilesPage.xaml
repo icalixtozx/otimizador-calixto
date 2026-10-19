@@ -1,0 +1,181 @@
+<UserControl x:Class="Optimizer.App.Views.ProfilesPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Canvas}">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+  </UserControl.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="34,29,34,34">
+      <TextBlock Text="Planos e histórico" FontSize="28" FontWeight="Bold" />
+      <TextBlock Text="Revise cada consequência. Este protótipo permanece em diagnóstico; nenhuma tela aplica mudanças ao Windows."
+                 FontSize="13" Foreground="#737373" Margin="0,7,0,20" TextWrapping="Wrap" />
+
+      <TabControl SelectedIndex="{Binding SelectedSectionIndex}" Background="Transparent" BorderThickness="0">
+        <TabItem Header="Montar plano">
+          <StackPanel Margin="0,14,0,0">
+            <Border Background="#111111" CornerRadius="14" Padding="19" Margin="0,0,0,16">
+              <StackPanel>
+                <TextBlock Text="CATÁLOGO DE PRODUTO" Foreground="#B9B9B9" FontSize="10" FontWeight="Bold" />
+                <TextBlock Text="{Binding CatalogStatus}" Foreground="White" FontSize="15" FontWeight="SemiBold"
+                           TextWrapping="Wrap" Margin="0,7,0,0" />
+                <TextBlock Text="A demonstração sintética abaixo serve apenas para conferir o fluxo de plano, consentimento e histórico. Não é uma otimização."
+                           Foreground="#BEBEBE" FontSize="11" TextWrapping="Wrap" Margin="0,7,0,0" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="12" Padding="18">
+              <StackPanel>
+                <TextBlock Text="1 · Escolha o perfil" FontSize="15" FontWeight="Bold" />
+                <TextBlock Text="Leve e Equilibrado só sugerem itens elegíveis para revisão. Extremo e Personalizado exigem escolha explícita. Nenhum perfil aplica tudo automaticamente."
+                           FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,12" />
+                <ComboBox ItemsSource="{Binding ProfileOptions}" SelectedItem="{Binding SelectedProfile}"
+                          DisplayMemberPath="Name" Height="36" Padding="8,5" />
+                <TextBlock Text="{Binding SelectedProfile.Description}" FontSize="11" Foreground="#777777"
+                           TextWrapping="Wrap" Margin="0,7,0,0" />
+
+                <CheckBox Content="Incluir marcador de demonstração sintética (não é ajuste real)"
+                          IsChecked="{Binding IncludeSyntheticDemo}" Margin="0,18,0,0"
+                          FontSize="12" FontWeight="SemiBold" />
+                <TextBlock Text="Este exemplo usa uma plataforma fictícia Windows x64. A compatibilidade mostrada não comprova suporte a este PC."
+                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="21,4,0,0" />
+
+                <Button Content="Gerar plano para revisão" Command="{Binding BuildPlanCommand}"
+                        Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,17,0,0" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="#F3F3F1" CornerRadius="9" Padding="12" Margin="0,13,0,13">
+              <StackPanel>
+                <TextBlock Text="{Binding PlanSourceLabel}" FontSize="9" FontWeight="Bold" Foreground="#555555" />
+                <TextBlock Text="{Binding PlanSummary}" FontSize="12" FontWeight="SemiBold" Margin="0,5,0,0" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding ReviewItems}"
+                          Visibility="{Binding HasReviewItems, Converter={StaticResource BoolToVisibility}}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="11"
+                          Padding="15" Margin="0,0,0,10">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="Bold" />
+                        <TextBlock Grid.Column="1" Text="{Binding Risk}" FontSize="9" FontWeight="Bold"
+                                   Foreground="#555555" />
+                      </Grid>
+                      <TextBlock Text="{Binding Description}" FontSize="11" Foreground="#666666"
+                                 TextWrapping="Wrap" Margin="0,6,0,0" />
+                      <TextBlock Text="{Binding Status, StringFormat=Estado: {0}}" FontSize="10" FontWeight="SemiBold"
+                                 Foreground="#444444" Margin="0,8,0,0" />
+                      <TextBlock Text="{Binding Reason}" FontSize="10" Foreground="#777777"
+                                 TextWrapping="Wrap" Margin="0,3,0,0" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="12" Padding="18"
+                    Visibility="{Binding HasConsentDecisions, Converter={StaticResource BoolToVisibility}}">
+              <StackPanel>
+                <TextBlock Text="2 · Consequências e consentimento" FontSize="15" FontWeight="Bold" />
+                <TextBlock Text="Cada consequência precisa de uma decisão individual. Este consentimento só permite executar a simulação em memória; não autoriza escrita no Windows."
+                           FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,10" />
+                <ItemsControl ItemsSource="{Binding ConsentDecisions}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="#F7F7F5" CornerRadius="9" Padding="12" Margin="0,0,0,8">
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Bold" />
+                          <TextBlock Text="{Binding Consequence}" FontSize="11" Foreground="#555555"
+                                     TextWrapping="Wrap" Margin="0,5,0,8" />
+                          <CheckBox Content="Li e aceito esta consequência para a demonstração sintética"
+                                    IsChecked="{Binding Accepted, Mode=TwoWay}" FontSize="10" />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="Executar demonstração em memória" Command="{Binding SimulateCommand}"
+                        IsEnabled="{Binding CanSimulate}" Style="{StaticResource PrimaryButton}"
+                        HorizontalAlignment="Left" Margin="0,6,0,0" />
+              </StackPanel>
+            </Border>
+
+            <Border Background="#F3F3F1" CornerRadius="9" Padding="12" Margin="0,12,0,0">
+              <StackPanel>
+                <TextBlock Text="{Binding StatusMessage}" FontSize="11" FontWeight="SemiBold"
+                           Foreground="#444444" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding SimulationResult}" FontSize="11" Foreground="#555555"
+                           TextWrapping="Wrap" Margin="0,5,0,0" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </TabItem>
+
+        <TabItem Header="Histórico" Loaded="HistoryTab_Loaded">
+          <StackPanel Margin="0,14,0,0">
+            <TextBlock Text="Histórico local do aplicativo" FontSize="18" FontWeight="Bold" />
+            <TextBlock Text="Registros persistidos em LocalAppData. Snapshots experimentais não são backups do Windows e não podem ser restaurados pelo app."
+                       FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,14" />
+            <Border Background="#F3F3F1" CornerRadius="9" Padding="12" Margin="0,0,0,12">
+              <TextBlock Text="{Binding HistoryStatusMessage}" FontSize="11" Foreground="#444444"
+                         TextWrapping="Wrap" />
+            </Border>
+            <ItemsControl ItemsSource="{Binding History}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="White" BorderBrush="#E7E7E4" BorderThickness="1" CornerRadius="12"
+                          Padding="16" Margin="0,0,0,11">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Profile}" FontSize="14" FontWeight="Bold" />
+                          <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#F2F2F0" CornerRadius="6" Padding="8,5"
+                                VerticalAlignment="Top">
+                          <TextBlock Text="{Binding DataLabel}" FontSize="8" FontWeight="Bold" Foreground="#444444" />
+                        </Border>
+                      </Grid>
+                      <TextBlock Text="{Binding State, StringFormat=Estado: {0}}" FontSize="11" FontWeight="SemiBold" Margin="0,9,0,0" />
+                      <TextBlock Text="{Binding SnapshotNotice}" FontSize="10" Foreground="#666666"
+                                 TextWrapping="Wrap" Margin="0,5,0,0" />
+                      <TextBlock Text="{Binding Recovery}" FontSize="10" Foreground="#666666"
+                                 TextWrapping="Wrap" Margin="0,5,0,0" />
+                      <Button Content="Avaliar retomada" Command="{Binding DataContext.ReviewResumeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                              CommandParameter="{Binding}" Style="{StaticResource SecondaryButton}"
+                              HorizontalAlignment="Left" Margin="0,10,0,0" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="Ainda não há operações no histórico local. A demonstração só cria um registro depois da confirmação e do clique explícito."
+                       FontSize="11" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding History.Count}" Value="0">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
+          </StackPanel>
+        </TabItem>
+      </TabControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
