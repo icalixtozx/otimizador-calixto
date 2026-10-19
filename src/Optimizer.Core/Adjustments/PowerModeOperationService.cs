@@ -1,8 +1,8 @@
 namespace Optimizer.Core.Adjustments;
 
 /// <summary>
-/// Owns the persisted AC/DC user-configured power-mode workflow. Real changes require both
-/// operation-specific consequences and confirmation, plus a separately enabled mutation policy.
+/// Owns persisted power-mode operations. Every operation is bound to a fresh AC/DC read and active
+/// power-plan GUID. Real writes require an enabled policy plus operation-specific consent.
 /// </summary>
 public sealed class PowerModeOperationService
 {
@@ -32,14 +32,17 @@ public sealed class PowerModeOperationService
             throw new ArgumentException("Choose a target mode for AC, DC, or both.");
 
         var current = _power.ReadConfiguredModes();
-        if (!current.ApiAvailable)
-            throw new PlatformNotSupportedException(current.CompatibilityReason);
+        if (!current.ApiAvailable || !current.CanModifyAc || !current.CanModifyDc || current.ActivePlanId is null)
+            throw new PlatformNotSupportedException(
+                "A persisted reversible capture requires readable AC, DC, and active-plan state. No setting was changed.");
 
-        UserConfiguredPowerMode? previousAc = targetAcMode is null ? null : ReadKnownMode(current.AcModeId, current.AcErrorCode, "AC");
-        UserConfiguredPowerMode? previousDc = targetDcMode is null ? null : ReadKnownMode(current.DcModeId, current.DcErrorCode, "DC");
+        // Capture both sides even for a one-sided proposal. This provides a baseline to detect drift
+        // and verify preservation of the unselected side before and after a future operation.
+        var previousAc = ReadKnownMode(current.AcModeId, current.AcErrorCode, "AC");
+        var previousDc = ReadKnownMode(current.DcModeId, current.DcErrorCode, "DC");
         var now = DateTimeOffset.UtcNow;
         var record = new PowerModeOperationRecord(
-            1,
+            2,
             Guid.NewGuid(),
             now,
             now,
@@ -49,7 +52,8 @@ public sealed class PowerModeOperationService
             targetDcMode,
             string.Empty,
             PowerModeOperationState.Captured,
-            "Captura real persistida dos modos configurados selecionados. Nenhuma configuração foi alterada; não é backup do Windows.");
+            "Captura real persistida de AC, DC e plano ativo. Nenhuma configuração foi alterada; não é backup do Windows.",
+            current.ActivePlanId);
         record = record with { CaptureFingerprint = PowerModeCaptureFingerprint.Compute(record) };
         await _store.SaveAsync(record, cancellationToken);
         return record;
@@ -67,18 +71,21 @@ public sealed class PowerModeOperationService
         EnsureAuthorized(approval, record, PowerModeAction.Apply);
         if (record.State != PowerModeOperationState.Captured)
             throw new InvalidOperationException("Only a captured power-mode operation may be applied.");
+        if (record.SchemaVersion < 2 || record.CapturedActivePlanId is null)
+            throw new InvalidOperationException("This legacy capture lacks a full AC/DC/active-plan baseline. Create a new capture for review.");
 
+        // This is a new read for this operation, never the UI's older preview. A difference means
+        // the reviewed plan is stale and no setter is called.
         var initial = _power.ReadConfiguredModes();
-        if (!MatchesTargets(initial, record, useTargets: false))
+        if (!MatchesCapturedSnapshot(initial, record))
             return await PersistStateAsync(record, PowerModeOperationState.Conflict,
-                "A configured AC/DC mode changed since capture; no write was attempted.");
+                "AC, DC, or the active power plan changed since review; no write was attempted. Re-read and create a new capture for review.");
         if (AllSelectedModesEqualTargets(record))
             return await PersistStateAsync(record, PowerModeOperationState.NoChangeRequired,
                 "The selected modes already match the requested values; no write was needed.");
 
         record = await PersistStateAsync(record, PowerModeOperationState.MutationMayHaveStarted,
             "Application intent was persisted before the first write. Result is not verified.", CancellationToken.None);
-        var anyWrite = false;
         var acWasWritten = false;
         var dcWasWritten = false;
         try
@@ -88,8 +95,8 @@ public sealed class PowerModeOperationService
                 var before = _power.ReadConfiguredModes();
                 if (!MatchesExpectedForApply(before, record, acWasWritten, dcWasWritten))
                     return await PersistStateAsync(record,
-                        anyWrite ? PowerModeOperationState.MutationUnverified : PowerModeOperationState.Conflict,
-                        "The configured AC/DC state changed before this write; no further write was attempted.", CancellationToken.None);
+                        acWasWritten || dcWasWritten ? PowerModeOperationState.MutationUnverified : PowerModeOperationState.Conflict,
+                        "AC, DC, or the active plan changed before this write; no further write was attempted. Review the current state.", CancellationToken.None);
 
                 var previous = GetPrevious(record, side);
                 var target = GetTarget(record, side);
@@ -97,31 +104,30 @@ public sealed class PowerModeOperationService
 
                 if (side == PowerModeSide.Ac) _power.SetConfiguredAcMode(target);
                 else _power.SetConfiguredDcMode(target);
-                anyWrite = true;
                 if (side == PowerModeSide.Ac) acWasWritten = true;
                 else dcWasWritten = true;
 
                 var after = _power.ReadConfiguredModes();
                 if (!MatchesExpectedForApply(after, record, acWasWritten, dcWasWritten))
                     return await PersistStateAsync(record, PowerModeOperationState.MutationUnverified,
-                        "A read after setting the configured mode did not match the expected AC/DC state; manual review is required.", CancellationToken.None);
+                        "Readback did not confirm the requested side or preservation of the other side and active plan; manual review is required.", CancellationToken.None);
 
                 record = await PersistStateAsync(record, PowerModeOperationState.MutationMayHaveStarted,
-                    $"{SideLabel(side)} configured preference verified; remaining selected side(s) are pending.", CancellationToken.None);
+                    $"{SideLabel(side)} preference verified; the other side and active plan also matched the captured state.", CancellationToken.None);
             }
 
             var verified = _power.ReadConfiguredModes();
-            if (!MatchesTargets(verified, record, useTargets: true))
+            if (!MatchesExpectedForApply(verified, record, acWasWritten, dcWasWritten))
                 return await PersistStateAsync(record, PowerModeOperationState.MutationUnverified,
-                    "The final configured-mode readback differs from the requested values; manual review is required.", CancellationToken.None);
+                    "Final readback differs from the approved AC/DC targets or the preserved AC/DC/active-plan state.", CancellationToken.None);
 
             return await PersistStateAsync(record, PowerModeOperationState.Verified,
-                "A later read confirmed the requested user-configured AC/DC preference(s). This does not prove the effective runtime mode or a performance gain.", CancellationToken.None);
+                "A later read confirmed selected preferences and confirmed the unselected side and active plan were preserved. This does not prove effective runtime mode or performance gain.", CancellationToken.None);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
             return await PersistStateAsync(record, PowerModeOperationState.MutationUnverified,
-                $"The operation failed after it was armed ({exception.GetType().Name}); re-read current modes and review manually.",
+                $"The operation failed after it was armed ({exception.GetType().Name}); re-read current modes and plan, then review manually.",
                 CancellationToken.None);
         }
     }
@@ -134,6 +140,8 @@ public sealed class PowerModeOperationService
         var record = await LoadRequiredAsync(operationId, cancellationToken);
         EnsureAuthorized(approval, record, PowerModeAction.Revert);
         if (record.State == PowerModeOperationState.NoChangeRequired) return record;
+        if (record.SchemaVersion < 2 || record.CapturedActivePlanId is null)
+            throw new InvalidOperationException("This legacy capture lacks a full AC/DC/active-plan baseline and cannot be restored by this version.");
         if (record.State is not (PowerModeOperationState.Verified or PowerModeOperationState.MutationMayHaveStarted or
             PowerModeOperationState.MutationUnverified or PowerModeOperationState.ReversionUnverified))
             throw new InvalidOperationException("The power-mode operation state does not permit conditional restoration.");
@@ -141,25 +149,27 @@ public sealed class PowerModeOperationService
         var current = _power.ReadConfiguredModes();
         if (!IsRestorableState(current, record))
             return await PersistStateAsync(record, PowerModeOperationState.Conflict,
-                "A selected AC/DC preference no longer equals either the captured value or the requested value; restoration was refused without a write.");
+                "AC, DC, or the active plan differs from the captured state and operation targets; restoration was refused without a write.");
         if (AllSelectedModesArePrevious(current, record))
             return await PersistStateAsync(record, PowerModeOperationState.Reverted,
-                "The selected preferences already match their captured values; no restoration write was needed.");
+                "Selected preferences already match captured values, and the other side and active plan are preserved; no restoration write was needed.");
 
         record = await PersistStateAsync(record, PowerModeOperationState.ReversionMayHaveStarted,
             "Restoration intent was persisted before the first write. Result is not verified.", CancellationToken.None);
+        var expectedAc = ReadMode(current, PowerModeSide.Ac);
+        var expectedDc = ReadMode(current, PowerModeSide.Dc);
         try
         {
             foreach (var side in SelectedSides(record))
             {
                 var before = _power.ReadConfiguredModes();
-                if (!IsRestorableState(before, record))
+                if (!MatchesExpectedState(before, record, expectedAc, expectedDc))
                     return await PersistStateAsync(record, PowerModeOperationState.ReversionUnverified,
-                        "The configured AC/DC state changed during restoration; no further write was attempted.", CancellationToken.None);
+                        "AC, DC, or the active plan changed during restoration; no further write was attempted.", CancellationToken.None);
 
                 var previous = GetPrevious(record, side);
                 var target = GetTarget(record, side);
-                var currentMode = ReadKnownMode(GetModeId(before, side), GetErrorCode(before, side), SideLabel(side));
+                var currentMode = ReadMode(before, side);
                 if (currentMode == previous) continue;
                 if (currentMode != target)
                     return await PersistStateAsync(record, PowerModeOperationState.Conflict,
@@ -167,32 +177,36 @@ public sealed class PowerModeOperationService
 
                 if (side == PowerModeSide.Ac) _power.SetConfiguredAcMode(previous);
                 else _power.SetConfiguredDcMode(previous);
+                if (side == PowerModeSide.Ac) expectedAc = previous;
+                else expectedDc = previous;
 
                 var after = _power.ReadConfiguredModes();
-                if (!IsRestorableState(after, record) ||
-                    ReadKnownMode(GetModeId(after, side), GetErrorCode(after, side), SideLabel(side)) != previous)
+                if (!MatchesExpectedState(after, record, expectedAc, expectedDc))
                     return await PersistStateAsync(record, PowerModeOperationState.ReversionUnverified,
-                        $"A read after restoring {SideLabel(side)} did not confirm the captured value; manual review is required.", CancellationToken.None);
+                        $"Readback after restoring {SideLabel(side)} did not confirm the captured value and preservation of the other side and active plan.", CancellationToken.None);
 
                 record = await PersistStateAsync(record, PowerModeOperationState.ReversionMayHaveStarted,
-                    $"{SideLabel(side)} captured preference restored and read back; remaining selected side(s) are pending.", CancellationToken.None);
+                    $"{SideLabel(side)} captured preference restored and read back; the other side and active plan were preserved.", CancellationToken.None);
             }
 
             var verified = _power.ReadConfiguredModes();
-            if (!AllSelectedModesArePrevious(verified, record))
+            if (!MatchesExpectedState(verified, record, expectedAc, expectedDc))
                 return await PersistStateAsync(record, PowerModeOperationState.ReversionUnverified,
-                    "The final readback differs from the captured preference(s); manual review is required.", CancellationToken.None);
+                    "Final readback differs from captured preferences or the preserved state; manual review is required.", CancellationToken.None);
 
             return await PersistStateAsync(record, PowerModeOperationState.Reverted,
-                "A later read confirmed the selected preferences were restored to their captured values.", CancellationToken.None);
+                "A later read confirmed captured AC/DC preferences and preserved the unselected side and active plan.", CancellationToken.None);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
             return await PersistStateAsync(record, PowerModeOperationState.ReversionUnverified,
-                $"Restoration failed after it was armed ({exception.GetType().Name}); re-read current modes and review manually.",
+                $"Restoration failed after it was armed ({exception.GetType().Name}); re-read current modes and plan, then review manually.",
                 CancellationToken.None);
         }
     }
+
+    public static bool MatchesCapturedState(PowerModeReadResult state, PowerModeOperationRecord record) =>
+        MatchesCapturedSnapshot(state, record);
 
     private async Task<PowerModeOperationRecord> LoadRequiredAsync(Guid operationId, CancellationToken cancellationToken)
     {
@@ -222,59 +236,53 @@ public sealed class PowerModeOperationService
     {
         if (id is Guid modeId && UserConfiguredPowerModes.TryParse(modeId, out var mode)) return mode;
         var suffix = errorCode is uint code ? $" (Windows error {code})" : string.Empty;
-        throw new PlatformNotSupportedException($"A recognized configured {side} mode is not readable{suffix}; that side cannot be changed reversibly.");
+        throw new PlatformNotSupportedException($"A recognized configured {side} mode is not readable{suffix}; AC, DC, and plan must all be readable for a reversible operation.");
     }
 
-    private static bool MatchesTargets(PowerModeReadResult state, PowerModeOperationRecord record, bool useTargets)
-    {
-        if (!state.ApiAvailable) return false;
-        foreach (var side in SelectedSides(record))
-        {
-            var expected = useTargets ? GetTarget(record, side) : GetPrevious(record, side);
-            var id = GetModeId(state, side);
-            if (id is not Guid modeId || !UserConfiguredPowerModes.TryParse(modeId, out var actual) || actual != expected)
-                return false;
-        }
-        return true;
-    }
+    private static bool MatchesCapturedSnapshot(PowerModeReadResult state, PowerModeOperationRecord record) =>
+        record.SchemaVersion >= 2 && record.CapturedActivePlanId is Guid planId && state.ApiAvailable &&
+        state.ActivePlanId == planId && ReadModeOrNull(state, PowerModeSide.Ac) == record.PreviousAcMode &&
+        ReadModeOrNull(state, PowerModeSide.Dc) == record.PreviousDcMode;
 
-    private static bool MatchesExpectedForApply(
-        PowerModeReadResult state,
-        PowerModeOperationRecord record,
-        bool acWasWritten,
-        bool dcWasWritten)
+    private static bool MatchesExpectedForApply(PowerModeReadResult state, PowerModeOperationRecord record, bool acWasWritten, bool dcWasWritten)
     {
-        if (!state.ApiAvailable) return false;
-        foreach (var side in SelectedSides(record))
-        {
-            var wasWritten = side == PowerModeSide.Ac ? acWasWritten : dcWasWritten;
-            var expected = wasWritten && GetTarget(record, side) != GetPrevious(record, side)
-                ? GetTarget(record, side)
-                : GetPrevious(record, side);
-            var id = GetModeId(state, side);
-            if (id is not Guid modeId || !UserConfiguredPowerModes.TryParse(modeId, out var actual) || actual != expected)
-                return false;
-        }
-        return true;
+        if (!HasCapturedPlan(state, record)) return false;
+        var expectedAc = record.TargetAcMode is not null && acWasWritten ? record.TargetAcMode : record.PreviousAcMode;
+        var expectedDc = record.TargetDcMode is not null && dcWasWritten ? record.TargetDcMode : record.PreviousDcMode;
+        return ReadModeOrNull(state, PowerModeSide.Ac) == expectedAc && ReadModeOrNull(state, PowerModeSide.Dc) == expectedDc;
     }
 
     private static bool IsRestorableState(PowerModeReadResult state, PowerModeOperationRecord record)
     {
-        if (!state.ApiAvailable) return false;
-        foreach (var side in SelectedSides(record))
-        {
-            var id = GetModeId(state, side);
-            if (id is not Guid modeId || !UserConfiguredPowerModes.TryParse(modeId, out var actual)) return false;
-            if (actual != GetPrevious(record, side) && actual != GetTarget(record, side)) return false;
-        }
-        return true;
+        if (!HasCapturedPlan(state, record)) return false;
+        var ac = ReadModeOrNull(state, PowerModeSide.Ac);
+        var dc = ReadModeOrNull(state, PowerModeSide.Dc);
+        if (ac is null || dc is null) return false;
+        return IsPreviousOrTarget(ac.Value, record.PreviousAcMode, record.TargetAcMode) &&
+            IsPreviousOrTarget(dc.Value, record.PreviousDcMode, record.TargetDcMode);
     }
 
-    private static bool AllSelectedModesArePrevious(PowerModeReadResult state, PowerModeOperationRecord record) =>
-        MatchesTargets(state, record, useTargets: false);
+    private static bool MatchesExpectedState(PowerModeReadResult state, PowerModeOperationRecord record,
+        UserConfiguredPowerMode expectedAc, UserConfiguredPowerMode expectedDc) =>
+        HasCapturedPlan(state, record) && ReadModeOrNull(state, PowerModeSide.Ac) == expectedAc &&
+        ReadModeOrNull(state, PowerModeSide.Dc) == expectedDc;
+
+    private static bool AllSelectedModesArePrevious(PowerModeReadResult state, PowerModeOperationRecord record)
+    {
+        if (!HasCapturedPlan(state, record)) return false;
+        return ReadModeOrNull(state, PowerModeSide.Ac) == record.PreviousAcMode &&
+            ReadModeOrNull(state, PowerModeSide.Dc) == record.PreviousDcMode;
+    }
 
     private static bool AllSelectedModesEqualTargets(PowerModeOperationRecord record) =>
         SelectedSides(record).All(side => GetPrevious(record, side) == GetTarget(record, side));
+
+    private static bool HasCapturedPlan(PowerModeReadResult state, PowerModeOperationRecord record) =>
+        state.ApiAvailable && record.CapturedActivePlanId is Guid expected && state.ActivePlanId == expected;
+
+    private static bool IsPreviousOrTarget(UserConfiguredPowerMode current, UserConfiguredPowerMode? previous, UserConfiguredPowerMode? target) =>
+        previous is UserConfiguredPowerMode prior &&
+        (current == prior || target is UserConfiguredPowerMode requested && current == requested);
 
     private static IEnumerable<PowerModeSide> SelectedSides(PowerModeOperationRecord record)
     {
@@ -287,14 +295,19 @@ public sealed class PowerModeOperationService
         ?? throw new InvalidDataException($"{SideLabel(side)} prior mode is missing.");
 
     private static UserConfiguredPowerMode GetTarget(PowerModeOperationRecord record, PowerModeSide side) =>
-        (side == PowerModeSide.Ac ? record.TargetAcMode : record.TargetDcMode)
-        ?? throw new InvalidDataException($"{SideLabel(side)} target mode is missing.");
+        GetTargetOptional(record, side) ?? throw new InvalidDataException($"{SideLabel(side)} target is missing.");
 
-    private static Guid? GetModeId(PowerModeReadResult state, PowerModeSide side) =>
-        side == PowerModeSide.Ac ? state.AcModeId : state.DcModeId;
+    private static UserConfiguredPowerMode? GetTargetOptional(PowerModeOperationRecord record, PowerModeSide side) =>
+        side == PowerModeSide.Ac ? record.TargetAcMode : record.TargetDcMode;
 
-    private static uint? GetErrorCode(PowerModeReadResult state, PowerModeSide side) =>
-        side == PowerModeSide.Ac ? state.AcErrorCode : state.DcErrorCode;
+    private static UserConfiguredPowerMode ReadMode(PowerModeReadResult state, PowerModeSide side) =>
+        ReadModeOrNull(state, side) ?? throw new PlatformNotSupportedException($"A recognized {SideLabel(side)} preference is not readable.");
+
+    private static UserConfiguredPowerMode? ReadModeOrNull(PowerModeReadResult state, PowerModeSide side)
+    {
+        var id = side == PowerModeSide.Ac ? state.AcModeId : state.DcModeId;
+        return id is Guid modeId && UserConfiguredPowerModes.TryParse(modeId, out var mode) ? mode : null;
+    }
 
     private static string SideLabel(PowerModeSide side) => side == PowerModeSide.Ac ? "AC" : "DC/bateria";
 

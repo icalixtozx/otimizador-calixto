@@ -65,10 +65,11 @@ public sealed class JsonPowerModeOperationStore
         ArgumentNullException.ThrowIfNull(record);
         var hasAc = record.TargetAcMode is not null;
         var hasDc = record.TargetDcMode is not null;
-        if (record.SchemaVersion != 1 || record.OperationId == Guid.Empty ||
+        if (record.SchemaVersion is not (1 or 2) || record.OperationId == Guid.Empty ||
             record.CapturedAtUtc == default || record.UpdatedAtUtc < record.CapturedAtUtc ||
             !Enum.IsDefined(record.State) || string.IsNullOrWhiteSpace(record.Detail) || (!hasAc && !hasDc) ||
-            hasAc != (record.PreviousAcMode is not null) || hasDc != (record.PreviousDcMode is not null) ||
+            (record.SchemaVersion == 1 && (hasAc != (record.PreviousAcMode is not null) || hasDc != (record.PreviousDcMode is not null))) ||
+            (record.SchemaVersion == 2 && (record.PreviousAcMode is null || record.PreviousDcMode is null || record.CapturedActivePlanId is null || record.CapturedActivePlanId == Guid.Empty)) ||
             (record.PreviousAcMode is { } ac && !Enum.IsDefined(ac)) ||
             (record.PreviousDcMode is { } dc && !Enum.IsDefined(dc)) ||
             (record.TargetAcMode is { } targetAc && !Enum.IsDefined(targetAc)) ||

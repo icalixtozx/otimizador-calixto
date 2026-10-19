@@ -4,7 +4,7 @@
 
 - `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos, VIDEOIDLE e operações AC/DC do modo de energia configurado.
 - `Optimizer.Windows` consulta WMI e implementa adaptadores Win32 PowrProf. Criar os adaptadores não chama setters.
-- `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. Leitura/captura real de VIDEOIDLE e modo de energia só ocorre após clique explícito; a UI não expõe aplicação nem reversão.
+- `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. Leitura/captura real de VIDEOIDLE e modo de energia só ocorre após clique explícito. A UI do modo de energia tem comandos de aplicação/restauração que começam desabilitados e exigem consentimento, autorização separada e frase exata.
 - As políticas de mutação real negam por padrão. Não há serviço, worker elevado, tarefa privilegiada ou daemon.
 - `Optimizer.Core.Tests` executa cenários com adaptador/storage falsos; o harness não chama PowrProf.
 
@@ -14,9 +14,11 @@ A fixture sintética permanece em catálogo separado e só grava um resultado ex
 
 VIDEOIDLE usa outro fluxo e outro subdiretório de histórico. A prévia consulta o estado real sem alteração. A captura persiste o esquema ativo e o índice AC anterior, sem representar backup do Windows. O serviço de aplicação exige política habilitada e confirmação específica. Mesmo assim, o app atual injeta política bloqueada e não apresenta comando de escrita.
 
-O modo de energia usa as funções `PowerGet/SetUserConfigured{AC,DC}PowerMode`, em outro serviço e histórico `RealPowerMode`. Os valores AC e DC são capturados e comparados separadamente. Esse estado é a preferência configurada pelo usuário, não leitura da preferência efetiva. O Windows pode sobrepor o sinal. Somente Windows 11 desktop com a API documentada disponível pode ser revisado. O app apresenta consequências e consentimento por lado; setters não são expostos pela UI, e a política padrão os nega.
+O modo de energia usa as funções `PowerGet/SetUserConfigured{AC,DC}PowerMode`, em outro serviço e histórico `RealPowerMode`. Uma captura versão 2 registra AC, DC e o GUID do plano ativo, mesmo para alvo de um lado. Esse estado é a preferência configurada pelo usuário, não leitura da preferência efetiva; o Windows pode sobrepor o sinal. Somente Windows 11 desktop com a API documentada e estado AC/DC/plano legível pode ser revisado. A UI separa revisão da consequência da autorização e exige confirmação específica; o serviço padrão nega setters.
 
-A aplicação persiste o ponto de recuperação antes da chamada nativa, verifica conflito antes da escrita, muda somente AC, solicita ativação do mesmo plano e verifica por leitura posterior. Reversão exige estado atual igual ao valor proposto e restaura o valor AC original. Mudança concorrente após a última leitura ainda é uma limitação porque as APIs não oferecem transação/CAS. Qualquer estado ambíguo exige revisão manual.
+Antes de aplicação, a UI e o serviço relêem AC, DC e plano ativo; qualquer divergência da captura invalida a revisão. A intenção é persistida antes da chamada nativa. O serviço verifica estado completo antes e depois de cada setter, incluindo preservação do lado não selecionado e plano ativo. A restauração exige uma autorização separada, compara o estado por etapas e recusa valores de terceiros. Mudança concorrente após a última leitura ainda é uma limitação porque as APIs não oferecem transação/CAS. Qualquer estado ambíguo exige revisão manual.
+
+Nesta etapa, uma captura real v2 foi persistida e reaberta em processo separado; esquema, valores, GUID do plano e fingerprint foram validados. Nenhum setter foi chamado. A validação visual do painel de modo de energia ficou incompleta porque a automação detectou entrada do usuário antes de concluir a navegação; a correção XAML identificada foi compilada, mas exige revisão visual posterior.
 
 O histórico usa `%LOCALAPPDATA%\CalixtoOptimizer\History`; capturas VIDEOIDLE ficam em `RealVideoIdle` e modo de energia em `RealPowerMode`, separados de `JsonOperationJournalStore` da demonstração. Fingerprint detecta corrupção/divergência acidental, não dá autenticidade contra o próprio usuário que controla a pasta. Nenhum worker privilegiado pode confiar nessa pasta como canal de comando.
 

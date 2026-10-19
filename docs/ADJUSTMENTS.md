@@ -52,3 +52,34 @@ Consentimento da demonstração sintética não autoriza esse ajuste. A polític
 ## Catálogo restante
 
 Veja [Catálogo inicial de candidatos](INITIAL-CATALOG.md). Processos, Registro, políticas e rede permanecem indisponíveis, sem escrita nem alegação de ganho universal.
+
+## Modo de energia configurado do usuário (0.6.0)
+
+Este é um teste técnico da API do modo de energia, não uma promessa de desempenho ou FPS. A Microsoft documenta `PowerGet/SetUserConfiguredACPowerMode` e `PowerGet/SetUserConfiguredDCPowerMode` para Windows 11 desktop. Os identificadores conhecidos representam Melhor eficiência, Equilibrado e Melhor desempenho. A API lê uma preferência configurada; sinais do sistema podem sobrepô-la. O plano ativo é outro estado, consultado por `PowerGetActiveScheme`.
+
+Fontes oficiais: [PowerGet AC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfiguredacpowermode), [PowerSet AC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfiguredacpowermode), [PowerGet DC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powergetuserconfigureddcpowermode), [PowerSet DC](https://learn.microsoft.com/en-us/windows/win32/api/powrprof/nf-powrprof-powersetuserconfigureddcpowermode) e [PowerGetActiveScheme](https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powergetactivescheme).
+
+### Revisão e captura
+
+- `WindowsPowerModeAdapter.ReadConfiguredModes` consulta AC, DC e o GUID do plano ativo. Não consulta `powercfg` nem interpreta saída localizada.
+- A compatibilidade para execução exige que os dois lados e o plano ativo sejam legíveis e que os dois valores estejam entre os GUIDs reconhecidos. Se qualquer um for desconhecido ou indisponível, o app não permite captura executável.
+- A captura versão 2 registra AC, DC e plano ativo, mesmo quando o alvo escolhido só se aplica a um lado. Assim a execução pode detectar mudanças no lado não selecionado e comprovar que ele permaneceu igual. Capturas versão 1 continuam legíveis como histórico, mas não são executáveis nem restauráveis neste fluxo.
+- A captura é uma linha de histórico local em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealPowerMode`. Ela não é backup do Windows e não pode reverter valores fora do escopo.
+- A UI exibe consequência separada para AC/tomada e DC/bateria. “Revisei” é apenas revisão visual. Para qualquer escrita futura há controles separados de aceite da consequência, autorização da ação e frase exata vinculada à operação. Reversão exige outro aceite e a frase `REVERT POWER MODE XXXXXXXX`.
+
+### Pré-condição, aplicação e restauração
+
+1. **Bloqueio padrão:** o serviço Core cria `BlockedPowerModeMutationPolicy`, que nega sempre. A tela também inicia sem autorização nem frase; leitura, navegação e captura não chamam setters. Somente o clique explícito de aplicação após os controles acima cria uma política confirmada temporária para aquela operação. Nenhuma aplicação ou reversão real foi autorizada/executada nesta etapa.
+2. **Prévia antes da ação:** ao solicitar aplicação, a UI relê AC, DC e plano ativo. Se diferirem da captura, exige nova leitura, captura e revisão; a captura antiga não é reutilizada. O serviço faz outra leitura interna imediatamente antes de armar o diário e repete a leitura antes de cada setter.
+3. **Intenção e aplicação futura:** somente os lados selecionados podem ser enviados ao setter correspondente. A intenção é persistida antes da primeira chamada. Após cada setter e no final, novas leituras devem confirmar o alvo selecionado, o lado não selecionado preservado e o plano ativo inalterado. Qualquer divergência fica como conflito ou resultado não verificado, nunca como sucesso.
+4. **Restauração futura:** requer confirmação própria. A leitura inicial deve mostrar o mesmo plano ativo e, em cada lado, apenas os valores capturados ou propostos. Antes/depois de cada setter o serviço compara ambos os lados ao estado esperado da etapa. Um terceiro valor, alteração externa ou mudança do plano recusa escrita adicional e pede revisão manual.
+5. **Recuperação limitada:** o diário grava intenção antes de escrever e usa leitura posterior. Uma interrupção pode deixar parte da operação aplicada; nesse caso o estado é não verificado, e a restauração condicional depende de nova leitura e de autorização separada. As APIs não oferecem transação ou compare-and-swap: a pequena janela entre última leitura e setter não pode ser eliminada.
+
+### Consequências, privilégios e validação
+
+- Melhor desempenho pode aumentar consumo, calor e ruído; na bateria pode reduzir autonomia. Melhor eficiência pode afetar resposta em algumas cargas. O resultado depende de Windows e OEM; não há benefício numérico alegado.
+- A compatibilidade documentada é Windows 11 desktop e exports/API disponíveis. Leitura de estado não precisa de elevação; a aplicação usa o contexto do usuário e pode ser recusada por plataforma/política/OEM. Hardware e permissões de outra máquina continuam pendentes.
+- Testes com adaptadores falsos verificam consentimento, comparação de AC/DC/plano, estado conflitante, interrupção, captura corrompida e política bloqueada. São simulações e não comprovam setter, operação nem reversão reais.
+- Nesta etapa os getters foram executados localmente e uma captura real foi gravada/reaberta em processos separados; nenhum setter foi chamado. O fluxo visual do painel de modo de energia não foi percorrido até o fim, então a apresentação completa de consequências/autorização/histórico ainda precisa de validação de interface com o app em primeiro plano.
+
+O conteúdo do diário é editável pelo usuário local; o fingerprint só detecta corrupção/divergência acidental, não é assinatura. Nenhum componente elevado pode confiar nesse arquivo como canal de comando.

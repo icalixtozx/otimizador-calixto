@@ -50,10 +50,14 @@ public sealed record PowerModeReadResult(
     Guid? DcModeId,
     uint? AcErrorCode,
     uint? DcErrorCode,
-    string CompatibilityReason)
+    string CompatibilityReason,
+    Guid? ActivePlanId = null,
+    uint? ActivePlanErrorCode = null)
 {
-    public bool CanModifyAc => ApiAvailable && AcModeId is Guid id && UserConfiguredPowerModes.TryParse(id, out _);
-    public bool CanModifyDc => ApiAvailable && DcModeId is Guid id && UserConfiguredPowerModes.TryParse(id, out _);
+    public bool CanModifyAc => ApiAvailable && ActivePlanId is not null &&
+        AcModeId is Guid id && UserConfiguredPowerModes.TryParse(id, out _);
+    public bool CanModifyDc => ApiAvailable && ActivePlanId is not null &&
+        DcModeId is Guid id && UserConfiguredPowerModes.TryParse(id, out _);
 }
 
 public enum PowerModeOperationState
@@ -87,7 +91,8 @@ public sealed record PowerModeOperationRecord(
     UserConfiguredPowerMode? TargetDcMode,
     string CaptureFingerprint,
     PowerModeOperationState State,
-    string Detail);
+    string Detail,
+    Guid? CapturedActivePlanId = null);
 
 public sealed record PowerModeApproval(
     Guid OperationId,
@@ -165,12 +170,17 @@ internal static class PowerModeCaptureFingerprint
 {
     public static string Compute(PowerModeOperationRecord record)
     {
-        var canonical = string.Join("\n",
+        var parts = new List<string>
+        {
             record.OperationId.ToString("D"),
             record.PreviousAcMode?.ToString() ?? "<none>",
             record.PreviousDcMode?.ToString() ?? "<none>",
             record.TargetAcMode?.ToString() ?? "<none>",
-            record.TargetDcMode?.ToString() ?? "<none>");
+            record.TargetDcMode?.ToString() ?? "<none>"
+        };
+        if (record.SchemaVersion >= 2)
+            parts.Add(record.CapturedActivePlanId?.ToString("D") ?? "<no-active-plan>");
+        var canonical = string.Join("\n", parts);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 }

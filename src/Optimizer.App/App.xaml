@@ -87,6 +87,12 @@
       </Setter>
     </Style>
 
+    <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource QuietButton}">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+    </Style>
+
     <Style x:Key="CardBorder" TargetType="Border">
       <Setter Property="Background" Value="{StaticResource Paper}" />
       <Setter Property="BorderBrush" Value="{StaticResource Line}" />

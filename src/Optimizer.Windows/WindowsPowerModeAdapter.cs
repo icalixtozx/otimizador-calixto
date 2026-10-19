@@ -25,8 +25,25 @@ public sealed class WindowsPowerModeAdapter : IPowerModeAdapter
 
         Guid? acMode = null;
         Guid? dcMode = null;
+        Guid? activePlan = null;
         uint? acError = null;
         uint? dcError = null;
+        uint? activePlanError = null;
+
+        try
+        {
+            var result = NativeMethods.PowerGetActiveScheme(IntPtr.Zero, out var planPointer);
+            if (result == ErrorSuccess && planPointer != IntPtr.Zero)
+            {
+                try { activePlan = Marshal.PtrToStructure<Guid>(planPointer); }
+                finally { _ = NativeMethods.LocalFree(planPointer); }
+            }
+            else activePlanError = result == ErrorSuccess ? unchecked((uint)0x80004005) : result;
+        }
+        catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException or MarshalDirectiveException)
+        {
+            activePlanError = unchecked((uint)Marshal.GetHRForException(exception));
+        }
 
         try
         {
@@ -57,7 +74,11 @@ public sealed class WindowsPowerModeAdapter : IPowerModeAdapter
             dcMode,
             acError,
             dcError,
-            "A API PowrProf de modo de energia configurado está disponível. Estes valores são preferências do usuário, não comprovam o modo efetivo do sistema.");
+            activePlan is null
+                ? "A API PowrProf de AC/DC respondeu, mas o plano ativo não pôde ser lido; aplicação fica indisponível. Preferências configuradas não comprovam o modo efetivo."
+                : "A API PowrProf de modo de energia configurado está disponível. O plano ativo foi lido separadamente; preferências configuradas não comprovam o modo efetivo.",
+            activePlan,
+            activePlanError);
     }
 
     public void SetConfiguredAcMode(UserConfiguredPowerMode mode)
@@ -91,6 +112,7 @@ public sealed class WindowsPowerModeAdapter : IPowerModeAdapter
         {
             return NativeLibrary.TryGetExport(library, "PowerGetUserConfiguredACPowerMode", out _) &&
                 NativeLibrary.TryGetExport(library, "PowerGetUserConfiguredDCPowerMode", out _) &&
+                NativeLibrary.TryGetExport(library, "PowerGetActiveScheme", out _) &&
                 NativeLibrary.TryGetExport(library, "PowerSetUserConfiguredACPowerMode", out _) &&
                 NativeLibrary.TryGetExport(library, "PowerSetUserConfiguredDCPowerMode", out _);
         }
@@ -122,6 +144,14 @@ public sealed class WindowsPowerModeAdapter : IPowerModeAdapter
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [DllImport("PowrProf.dll", ExactSpelling = true)]
         internal static extern uint PowerGetUserConfiguredDCPowerMode(out Guid powerModeGuid);
+
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [DllImport("PowrProf.dll", ExactSpelling = true)]
+        internal static extern uint PowerGetActiveScheme(IntPtr userRootPowerKey, out IntPtr activePolicyGuid);
+
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [DllImport("Kernel32.dll", ExactSpelling = true)]
+        internal static extern IntPtr LocalFree(IntPtr memory);
 
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         [DllImport("PowrProf.dll", ExactSpelling = true)]

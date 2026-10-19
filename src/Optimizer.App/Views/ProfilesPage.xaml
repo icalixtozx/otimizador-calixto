@@ -71,6 +71,7 @@
                     <TextBlock Text="{Binding PowerMode.ResultLabel}" FontSize="9" FontWeight="Bold" Foreground="#111111" />
                     <TextBlock Text="{Binding PowerMode.CurrentAcText}" FontSize="11" Foreground="#444444" Margin="0,5,0,0" />
                     <TextBlock Text="{Binding PowerMode.CurrentDcText}" FontSize="11" Foreground="#444444" Margin="0,3,0,0" />
+                    <TextBlock Text="{Binding PowerMode.ActivePlanText}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
                     <TextBlock Text="{Binding PowerMode.CompatibilityText}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
                   </StackPanel>
                 </Border>
@@ -97,19 +98,60 @@
                   <StackPanel>
                     <TextBlock Text="Consequências e consentimento específico" FontSize="12" FontWeight="Bold" />
                     <TextBlock Text="{Binding PowerMode.AcConsequence}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,4" />
-                    <CheckBox Content="Li e aceito a consequência para tomada (AC) desta captura"
-                              IsChecked="{Binding PowerMode.AcceptAcConsequences, Mode=TwoWay}"
+                    <CheckBox Content="Revisei a consequência proposta para tomada (AC)"
+                              IsChecked="{Binding PowerMode.ReviewedAcConsequences, Mode=TwoWay}"
                               IsEnabled="{Binding PowerMode.CanReviewAcConsent}" FontSize="10" />
                     <TextBlock Text="{Binding PowerMode.DcConsequence}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,8,0,4" />
-                    <CheckBox Content="Li e aceito a consequência para bateria (DC) desta captura"
-                              IsChecked="{Binding PowerMode.AcceptDcConsequences, Mode=TwoWay}"
+                    <CheckBox Content="Revisei a consequência proposta para bateria (DC)"
+                              IsChecked="{Binding PowerMode.ReviewedDcConsequences, Mode=TwoWay}"
                               IsEnabled="{Binding PowerMode.CanReviewDcConsent}" FontSize="10" />
                     <TextBlock Text="{Binding PowerMode.CaptureSummary}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,8,0,0" />
                     <TextBlock Text="{Binding PowerMode.RequiredApplyPhrase}"
                                FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,0" />
                   </StackPanel>
                 </Border>
-                <TextBlock Text="As caixas acima registram a revisão individual da consequência apenas nesta tela; não autorizam escrita. Aplicação e restauração reais permanecem bloqueadas por padrão até aprovação específica em outra etapa. Nenhum setter é chamado ao iniciar, ler ou capturar."
+                <Border Background="#F2F2F0" CornerRadius="8" Padding="11" Margin="0,0,0,8">
+                  <StackPanel>
+                    <TextBlock Text="Autorização específica · aplicação real" FontSize="12" FontWeight="Bold" />
+                    <TextBlock Text="A revisão acima não autoriza escrita. Para uma aplicação futura, confira a prévia real mais uma vez, marque cada consequência selecionada, marque a autorização da ação e digite a frase exata desta captura. Qualquer diferença em AC, DC ou plano ativo bloqueia e exige nova revisão."
+                               FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,6" />
+                    <CheckBox Content="Aceito esta consequência e autorizo aplicar este lado em AC/tomada"
+                              IsChecked="{Binding PowerMode.AuthorizeAcConsequences, Mode=TwoWay}"
+                              IsEnabled="{Binding PowerMode.CanReviewAcConsent}" FontSize="10" />
+                    <CheckBox Content="Aceito esta consequência e autorizo aplicar este lado em DC/bateria"
+                              IsChecked="{Binding PowerMode.AuthorizeDcConsequences, Mode=TwoWay}"
+                              IsEnabled="{Binding PowerMode.CanReviewDcConsent}" FontSize="10" Margin="0,3,0,0" />
+                    <CheckBox Content="Autorizo executar o plano capturado agora"
+                              IsChecked="{Binding PowerMode.AuthorizeApply, Mode=TwoWay}" FontSize="10" Margin="0,3,0,0" />
+                    <TextBox Text="{Binding PowerMode.ApplyPhrase, UpdateSourceTrigger=PropertyChanged}"
+                             Height="32" Padding="7,5" Margin="0,6,0,0"
+                             ToolTip="Digite exatamente a frase exibida acima." />
+                    <Button Content="Autorizar e aplicar agora" Command="{Binding PowerMode.ApplyCommand}"
+                            IsEnabled="{Binding PowerMode.CanApply}" Style="{StaticResource PrimaryButton}"
+                            HorizontalAlignment="Left" Margin="0,7,0,0" />
+                    <TextBlock Text="{Binding PowerMode.AuthorizationStatus}" FontSize="9" Foreground="#777777"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                  </StackPanel>
+                </Border>
+                <Border Background="#FFF9EC" BorderBrush="#E7D6A7" BorderThickness="1" CornerRadius="8" Padding="11">
+                  <StackPanel>
+                    <TextBlock Text="Restauração condicional · confirmação separada" FontSize="12" FontWeight="Bold" />
+                    <TextBlock Text="Só restaura se AC, DC e plano ativo ainda forem compatíveis com a captura e com a operação. Conflitos recusam a escrita; a captura não é backup completo do Windows."
+                               FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,6" />
+                    <TextBlock Text="{Binding PowerMode.RequiredRevertPhrase}" FontSize="10" Foreground="#666666" />
+                    <CheckBox Content="Li as consequências da restauração e autorizo esta recuperação específica"
+                              IsChecked="{Binding PowerMode.AcceptRecoveryConsequences, Mode=TwoWay}" FontSize="10" Margin="0,5,0,0" />
+                    <CheckBox Content="Autorizo executar esta restauração agora"
+                              IsChecked="{Binding PowerMode.AuthorizeRevert, Mode=TwoWay}" FontSize="10" Margin="0,3,0,0" />
+                    <TextBox Text="{Binding PowerMode.RevertPhrase, UpdateSourceTrigger=PropertyChanged}"
+                             Height="32" Padding="7,5" Margin="0,6,0,0"
+                             ToolTip="Digite exatamente a frase específica para restauração." />
+                    <Button Content="Autorizar e restaurar" Command="{Binding PowerMode.RevertCommand}"
+                            IsEnabled="{Binding PowerMode.CanRevert}" Style="{StaticResource SecondaryButton}"
+                            HorizontalAlignment="Left" Margin="0,7,0,0" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Text="Nenhum setter é chamado ao iniciar, ler ou capturar. O serviço padrão nega escrita; somente o botão explícito, com consentimentos separados e frase exata, abre a política temporária desta operação."
                            FontSize="10" Foreground="#777777" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding PowerMode.StatusMessage}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
               </StackPanel>

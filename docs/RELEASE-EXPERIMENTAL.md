@@ -34,3 +34,15 @@ Anexe exatamente esses dois arquivos. Não anexe `bin`, `obj`, logs locais, rela
 7. Confira nomes, tamanhos e SHA-256 dos anexos; então selecione **Publish release**.
 
 A compilação e os testes locais não publicam uma Release. Até a conclusão dos passos do site, a pre-release permanece não publicada.
+
+## Pacotes de desenvolvimento 0.6.0 experimental — não publicados
+
+Estes artefatos locais foram produzidos depois da tag 0.5.0. Não movem nem alteram `v0.5.0-experimental`, e não foram anexados a uma GitHub Release.
+
+- ZIP autocontido Windows x64: `artifacts/CalixtoOptimizer-0.6.0-experimental-win-x64.zip` — 65.483.173 bytes; SHA-256 `2ADC4EADBDF8309D0F1DD5416FB4FE452E7EDA5428A8C591DFD7D98D3C27E712`.
+- Instalador Windows x64: `artifacts/installer/CalixtoOptimizer-0.6.0-experimental-win-x64-setup.exe` — 46.707.153 bytes; SHA-256 `1C90177F72F6DDBF89587D3CBADB044A8339EAC96A7AC3DE1C20F6E463223A12`.
+- O ZIP foi conferido: 406 entradas, app e README presentes; sem o diretório auxiliar de smoke test. O instalador compilou com Inno Setup 7.1.0, mas não foi executado. Instalação/desinstalação 0.6.0 não foram testadas.
+- A assinatura Authenticode do Setup é `NotSigned`. O pacote é experimental, não validado em outro computador e não deve ser tratado como Release estável.
+- O fluxo 0.6.0 adiciona modo de energia configurado AC/DC com captura local, preflight e confirmação explícita. Nenhum setter foi chamado nesta etapa. A validação visual completa do painel ainda está pendente.
+
+Se for publicar pelo site, crie uma nova pre-release com tag `v0.6.0-experimental` somente depois de criar essa tag a partir do commit que contém este código. Não selecione nem altere a tag 0.5.0. Anexe apenas os dois arquivos 0.6.0 listados acima e declare que instalação/desinstalação não foram testadas. Compare os hashes publicados com os valores acima.

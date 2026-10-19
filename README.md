@@ -21,11 +21,15 @@ A captura técnica não inclui bateria/DC, não é backup do Windows e fica sepa
 
 ## Modo de energia do usuário
 
-As APIs documentadas `PowerGet/SetUserConfiguredAC/DC` são distintas das APIs de plano (`PowerGet/SetActiveScheme`). O código 0.6 consulta e captura a preferência real AC/DC sob demanda, apresenta consequências e implementa aplicação, verificação e reversão condicional no serviço. A aplicação WPF não oferece comando para escrita e injeta política bloqueada; aplicar e reverter foram testados somente com adaptadores simulados. Neste PC, apenas os getters foram executados: build 26300 retornou Equilibrado em AC e DC. Não foi feita escrita nem medida de desempenho. Consulte [documentação do modo de energia](docs/ADJUSTMENTS.md).
+As APIs documentadas `PowerGet/SetUserConfiguredAC/DC` são distintas das APIs de plano (`PowerGet/SetActiveScheme`). A aplicação lê AC, DC e o GUID do plano ativo sob demanda. Uma captura versão 2 persiste os dois lados e o plano, mesmo para uma proposta de um lado só. Uma divergência em qualquer um deles invalida a revisão e impede a escrita.
+
+A tela separa “revisei” da autorização: a escrita exige consentimento por consequência, autorização da ação e frase exata por captura; restauração tem consentimento e frase próprios. Serviço e tela iniciam bloqueados. Mesmo depois de uma autorização futura, não há compare-and-swap nas APIs, então uma corrida entre a última leitura e o setter ainda exige cautela. Nenhum setter foi chamado nesta etapa.
+
+Em 19/10/2026 foi executada uma leitura nova, depois da alteração da lógica: AC e DC retornaram `Equilibrado`, e o plano ativo foi lido separadamente. Uma captura persistida com alvos iguais aos valores atuais foi reaberta em um segundo processo; esquema, AC/DC, GUID do plano e fingerprint passaram na validação. Os nomes do modo vêm desta consulta atual, não de uma observação anterior. Veja [documentação do modo de energia](docs/ADJUSTMENTS.md) e [progresso/testes](docs/PROGRESS.md).
 
 ## Distribuição experimental
 
-Os artefatos 0.5.0-experimental para Windows x64 correspondem à tag `v0.5.0-experimental`: ZIP autocontido e instalador EXE compilados; instalação e desinstalação testadas neste PC de desenvolvimento. A GitHub pre-release ainda não foi publicada e esses pacotes não incluem o recurso de modo de energia do código de desenvolvimento 0.6. O Setup não tem assinatura digital própria. Nenhuma versão foi validada em outro computador.
+Os pacotes 0.5.0 correspondem à tag `v0.5.0-experimental` e permanecem inalterados; eles não incluem este fluxo. A versão 0.6.0 é experimental, não validada em outro computador e o instalador não tem assinatura digital própria. Pacotes 0.6.0, hashes e estado de teste estão em `artifacts/` e `docs/PROGRESS.md`. Não foram executados testes de instalação/desinstalação do pacote 0.6.0 nesta etapa. Nenhuma GitHub Release foi publicada.
 
 Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md), [artefatos e instalador](packaging/README-INSTALADOR.md) e [passos para publicar a pre-release](docs/RELEASE-EXPERIMENTAL.md).
 

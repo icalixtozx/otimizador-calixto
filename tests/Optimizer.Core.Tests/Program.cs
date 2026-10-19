@@ -47,12 +47,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("VIDEOIDLE store rejects a tampered persisted capture", VideoIdleStoreRejectsTamperedCapture),
     ("Windows power-mode GUIDs map only documented values", () => RunSync(PowerModeGuidsMapDocumentedValues)),
     ("power-mode capture persists independent AC/DC state while default writes stay blocked", PowerModeCaptureIsPersistedAndBlockedByDefault),
-    ("power-mode capture can select AC only when DC is unavailable", PowerModeCaptureSupportsOneSide),
+    ("power-mode capture refuses incomplete AC/DC/plan baselines", PowerModeCaptureRequiresFullBaseline),
     ("power-mode application requires consequence consent for every selected side", PowerModeApplyRequiresSpecificConsent),
     ("power-mode application and restoration verify independent AC/DC values", PowerModeApplyAndRevertVerifyEachSide),
     ("power-mode application detects state conflicts before writing", PowerModeApplyDetectsConflict),
+    ("power-mode application rereads and refuses a changed active plan", PowerModeApplyDetectsActivePlanConflict),
+    ("power-mode application verifies an unselected DC preference is preserved", PowerModeApplyVerifiesUnselectedDc),
+    ("power-mode application verifies the active plan remains unchanged", PowerModeApplyVerifiesActivePlan),
     ("power-mode interrupted partial apply is persisted and conditionally recoverable", PowerModeInterruptionCanBeConditionallyReverted),
     ("power-mode restoration refuses third-party changes", PowerModeRevertRefusesExternalChange),
+    ("power-mode restoration refuses a changed active plan", PowerModeRevertRefusesChangedActivePlan),
     ("power-mode journal failure before first write leaves fake Windows unchanged", PowerModeJournalFailurePreventsWrite),
     ("power-mode store rejects tampered captures", PowerModeStoreRejectsTamperedCapture),
     ("power-mode store rejects an unsupported persisted state", PowerModeStoreRejectsUnsupportedState)
@@ -502,7 +506,7 @@ static async Task PowerModeCaptureIsPersistedAndBlockedByDefault()
     });
 }
 
-static async Task PowerModeCaptureSupportsOneSide()
+static async Task PowerModeCaptureRequiresFullBaseline()
 {
     await WithTemporaryDirectory(async directory =>
     {
@@ -512,10 +516,9 @@ static async Task PowerModeCaptureSupportsOneSide()
             DcErrorCode = 50
         };
         var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
-        var capture = await new PowerModeOperationService(adapter, store)
-            .CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
-        Assert(capture.PreviousAcMode == UserConfiguredPowerMode.Balanced && capture.PreviousDcMode is null,
-            "a partial API failure must not block independently supported AC capture or invent DC state");
+        await AssertThrowsAsync<PlatformNotSupportedException>(() => new PowerModeOperationService(adapter, store)
+            .CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null));
+        Assert(adapter.Writes.Count == 0, "an incomplete baseline must be refused without a setter");
         Assert(adapter.Writes.Count == 0, "partial-side capture must remain read-only");
     });
 }
@@ -576,6 +579,55 @@ static async Task PowerModeApplyDetectsConflict()
     });
 }
 
+static async Task PowerModeApplyDetectsActivePlanConflict()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        adapter.ActivePlanId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var result = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true));
+        Assert(result.State == PowerModeOperationState.Conflict, "a changed active plan must make the approved capture stale");
+        Assert(adapter.Writes.Count == 0, "plan drift must be detected before any setter");
+    });
+}
+
+static async Task PowerModeApplyVerifiesUnselectedDc()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        adapter.AfterAcWrite = () => adapter.DcMode = UserConfiguredPowerMode.BestEfficiency;
+        var result = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true));
+        Assert(result.State == PowerModeOperationState.MutationUnverified,
+            "a change to unselected DC during AC write must never be reported as verified");
+        Assert(adapter.Writes.Select(write => write.Side).SequenceEqual(["AC"]), "DC must not be written as a side effect");
+    });
+}
+
+static async Task PowerModeApplyVerifiesActivePlan()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        adapter.AfterAcWrite = () => adapter.ActivePlanId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var result = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true));
+        Assert(result.State == PowerModeOperationState.MutationUnverified,
+            "a changed active plan after write must never be reported as verified");
+    });
+}
+
 static async Task PowerModeInterruptionCanBeConditionallyReverted()
 {
     await WithTemporaryDirectory(async directory =>
@@ -619,6 +671,25 @@ static async Task PowerModeRevertRefusesExternalChange()
             MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
         Assert(reverted.State == PowerModeOperationState.Conflict, "third-party mode must cause a restoration conflict");
         Assert(adapter.Writes.Count == appliedWriteCount, "recovery must not overwrite an external change");
+    });
+}
+
+static async Task PowerModeRevertRefusesChangedActivePlan()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "real-power-mode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        _ = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true));
+        var writeCount = adapter.Writes.Count;
+        adapter.ActivePlanId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var result = await service.RevertAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
+        Assert(result.State == PowerModeOperationState.Conflict, "a changed active plan must refuse restoration");
+        Assert(adapter.Writes.Count == writeCount, "no restoration setter may run after active-plan drift");
     });
 }
 
@@ -1194,8 +1265,10 @@ sealed class FakeVideoIdlePowerAdapter(uint initialSeconds) : IVideoIdlePowerAda
 }
 sealed class FakePowerModeAdapter(UserConfiguredPowerMode acMode, UserConfiguredPowerMode dcMode) : IPowerModeAdapter
 {
+    public static readonly Guid DefaultActivePlanId = Guid.Parse("22222222-3333-4444-5555-666666666666");
     public UserConfiguredPowerMode AcMode { get; set; } = acMode;
     public UserConfiguredPowerMode DcMode { get; set; } = dcMode;
+    public Guid? ActivePlanId { get; set; } = DefaultActivePlanId;
     public Guid? AcModeIdOverride { get; set; }
     public Guid? DcModeIdOverride { get; set; }
     public uint? AcErrorCode { get; set; }
@@ -1212,7 +1285,8 @@ sealed class FakePowerModeAdapter(UserConfiguredPowerMode acMode, UserConfigured
         DcErrorCode is null ? DcModeIdOverride ?? UserConfiguredPowerModes.ToId(DcMode) : null,
         AcErrorCode,
         DcErrorCode,
-        ApiAvailable ? "Simulated Windows 11 API" : "Simulated unsupported API");
+        ApiAvailable ? "Simulated Windows 11 API" : "Simulated unsupported API",
+        ActivePlanId);
 
     public void SetConfiguredAcMode(UserConfiguredPowerMode mode)
     {
