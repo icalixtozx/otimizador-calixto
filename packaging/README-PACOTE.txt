@@ -24,13 +24,12 @@ Distribuicao portatil:
 3. O runtime .NET Desktop esta incluido no ZIP autocontido.
 
 Instalador por usuario:
-- CalixtoOptimizer.iss e o script-fonte do Inno Setup.
-- Compilador Inno Setup 7.1.0 ainda precisa ser disponibilizado pelo usuario.
+- EXE experimental produzido com Inno Setup 7.1.0; nao possui assinatura digital propria.
 - Instala em LocalAppData\Programs\CalixtoOptimizer, sem pedir elevacao.
 - O instalador nao inicia o aplicativo automaticamente.
 - A pasta de instalacao e gravavel pelo usuario. Nenhum worker elevado esta incluido.
 - O historico em LocalAppData\CalixtoOptimizer fica separado e e mantido ao desinstalar.
-- O EXE do instalador ainda nao foi produzido.
-- Instalacao e desinstalacao ainda nao foram testadas.
+- Instalacao e desinstalacao foram executadas no PC de desenvolvimento no diretorio de teste; arquivos, entrada de desinstalacao e atalho foram removidos.
+- O aplicativo nao foi aberto durante o teste. O pacote nao foi testado em outro PC.
 
-Nenhum ajuste, driver, Registro, politica, servico, rede, energia ou firmware foi alterado para gerar o pacote.
+Nenhum ajuste de energia, Registro de ajuste, politica, servico, rede, driver ou firmware foi aplicado. VIDEOIDLE e os valores do Windows foram preservados. O teste de instalacao criou e removeu apenas os componentes de instalacao do proprio aplicativo.
