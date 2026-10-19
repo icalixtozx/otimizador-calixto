@@ -192,3 +192,53 @@ Este registro atualiza a distribuição do item 10 com a documentação final e 
 - O fluxo completo de modo de energia precisa de inspeção visual com o app em primeiro plano; esse teste ficou pendente por entrada do usuário no Windows. A captura e a integridade do arquivo foram validadas em processos separados, não pela tela de histórico.
 - Instalação/desinstalação 0.6.0 e compatibilidade em outro computador continuam pendentes. Também faltam teste real aprovado de aplicação e restauração; elas não foram autorizadas nesta etapa.
 - Revisão do diff/segredos, commit `77cddf1dc67d9838a3823b0a8ab045314b1bebc5` e push para `origin/main` concluídos. A inspeção visual do painel, instalação/desinstalação 0.6.0 e testes em outro PC permanecem pendentes; qualquer aplicação/restauração real exige aprovação específica.
+
+## 14. Matriz oficial, SDK e validações pendentes — 2026-10-19
+
+Base examinada: commit 88e03ea8aa34a30c2952516cc25a9c4c47907253, árvore limpa no início da revisão. Nenhum patch de código futuro foi incorporado nem alterado nesta etapa.
+
+### Diagnóstico do SDK
+
+Os comandos foram executados em PowerShell nesta máquina Windows x64. dotnet.exe resolve para C:\Program Files\dotnet\dotnet.exe.
+
+| Diretório da execução | global.json encontrado | dotnet --info | dotnet --list-sdks |
+| --- | --- | --- | --- |
+| %USERPROFILE%\Documents\Codex\2026-10-19\cara-eu | Nenhum no diretório nem nos pais | Host 8.0.21 x64; nenhum SDK; runtime Microsoft.NETCore.App 8.0.21; exit 0 | Saída vazia; exit 0 |
+| %USERPROFILE%\Downloads\CalixtoOptimizer | global.json do repositório: SDK 10.0.100, rollForward=latestFeature, prerelease falso | Mesmo host/runtime 8.0.21, nenhum SDK instalado; identificou o global.json do repo; exit 0 | Saída vazia; exit 0 |
+
+No diretório do repositório, dotnet build não começou: a CLI não encontrou SDK compatível. Não foi alterado global.json nem foi instalado SDK.
+
+**Proveniência 0.6.0:** os registros históricos das fases 4 e 9 dizem que o SDK portátil .NET 10.0.402 produziu builds anteriores. A publicação 0.6 contém runtime .NET e Windows Desktop 10.0.13; a página oficial lista o SDK 10.0.402 com esses runtimes, o que é consistente com o pacote. Assim, 10.0.402 é a identificação mais sustentada para o build/publicação 0.6, mas a atribuição exata não pode ser provada: nenhum binlog/manifesto de proveniência foi guardado com os artefatos. Runtime 10.0.13 não é, por si só, o número do SDK. Para confirmar de forma reproduzível, aguarda-se aprovação para instalar o SDK oficial x64 10.0.402, permitido pelo latestFeature sem mudar o alvo declarado. Fontes: [downloads oficiais do .NET 10](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) e [regras de seleção de SDK de global.json](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json).
+
+### Matriz de todas as fases sugeridas no plano oficial
+
+| Fase | Estado | Evidência e pendência que determina o estado |
+| --- | --- | --- |
+| 0 — Ambiente e decisões | **Parcial** | Solução WPF e diagnóstico local existem; Windows foi observado antes. Neste exame o repo pede SDK 10 e só há runtime 8; a proveniência exata do pacote 0.6 não está fechada. |
+| 1 — Inventário e drivers somente leitura | **Concluído localmente** | WMI/PowrProf reais foram comparados no PC de desenvolvimento; 179 dispositivos/drivers e 5 planos foram vistos; exportação sanitizada e filtros têm cobertura. Não demonstra compatibilidade em outro PC. |
+| 2 — Motor, planos, diário e simulação | **Concluído no escopo simulado** | Catálogo tipado, perfis, prévia, consentimento, diário e recuperação simulada existem; 54 checks foram registrados como aprovados. Nenhum desses testes fake prova escrita real. |
+| 3 — Primeiro ajuste real reversível | **Bloqueado para validação real** | Código técnico VIDEOIDLE e modo AC/DC existe; capturas reais são somente leitura. Ciclo real de aplicação/verificação/reversão não foi autorizado nem executado nesta etapa. |
+| 4 — Energia, Registro, políticas e processos | **Parcial** | Energia tem leitura/captura e fluxo com confirmação; Registro, políticas e prioridade de processos continuam indisponíveis. Escrita de energia permanece sem validação real. |
+| 5 — Rede e GPU compatível | **Não iniciado** | Há propostas documentadas; não há diagnóstico de rede nem integração que configure preferência de GPU. Inventariar um adaptador não equivale a um módulo de rede/GPU. |
+| 6 — Pós-formatação e drivers assistidos | **Parcial** | Identificação de drivers foi validada localmente. Seleção de fontes oficiais, análise e instalação assistida de INF, e seleção/instalação de programas não existem. |
+| 7 — Publicação, instalador e recuperação | **Parcial** | ZIP/Setup 0.6 foram compilados e identificados por hash; a instalação/desinstalação 0.5 foi testada historicamente. Instalação, upgrade 0.5→0.6 e desinstalação 0.6 aguardam aprovação. Compatibilidade em outro PC e recuperação prática pendem. |
+| 8 — Controles extremos específicos por hardware | **Não iniciado** | Não há matriz de CPU/GPU/placa-mãe, integração de fabricante, licença e validação por modelo. O documento de candidatos não constitui suporte implementado. |
+
+Esta matriz não declara o produto completo. Empacotar não conclui as fases de funcionalidade, validação ou recuperação.
+
+### Validação visual
+
+- A visão geral de diagnóstico foi aberta e observada.
+- A navegação para Planos encontrou um estilo XAML ausente; a correção foi incorporada antes do commit 0.6.
+- Após reabrir, a automação detectou entrada do usuário na janela. Os cliques foram interrompidos para não disputar o controle. Leitura de modo, consequências, consentimentos e histórico ainda não foram inspecionados visualmente de ponta a ponta.
+- Checklist manual curto consta em docs/TESTING.md; a execução deve deixar aplicação e restauração sem autorização/sem clique.
+
+### Instalação, atualização e desinstalação 0.6.0
+
+O ciclo está apenas preparado em docs/TESTING.md e aguarda autorização. A instalação por usuário usa o mesmo AppId nas versões 0.5 e 0.6, grava em LocalAppData/Programs, cria atalho e chave de desinstalação HKCU e não abre o app automaticamente. O script não define a seção UninstallDelete. O histórico persistente está em %LOCALAPPDATA%\CalixtoOptimizer\History; o código não possui armazenamento separado de configurações do usuário. A comparação de histórico pode ser testada; preservação de configurações inexistentes não pode ser alegada.
+
+Nenhuma instalação, atualização ou desinstalação 0.6 foi executada. Nenhum setter de energia foi chamado.
+
+### Próxima menor entrega de desenvolvimento proposta
+
+Após fechar a reprodutibilidade do SDK, a menor fatia nova prevista é a fase 5: um diagnóstico de conectividade, RTT e perda para destino informado pelo usuário, somente leitura, com resultado inconclusivo explícito quando ICMP estiver bloqueado. Não escrever DNS, MTU, TCP, RSS, offloads ou propriedades da NIC. Isso não repete inventário, motor simulado ou modo de energia. Nenhum código foi iniciado nesta etapa.
