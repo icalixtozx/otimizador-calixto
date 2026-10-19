@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Optimizer.Core", "src\Optimizer.Core\Optimizer.Core.csproj", "{CE9DDABF-522D-484C-8F32-D51D2EA7B5F1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Optimizer.Windows", "src\Optimizer.Windows\Optimizer.Windows.csproj", "{D8BDF357-7113-4430-96B4-21EDE2F03808}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Optimizer.App", "src\Optimizer.App\Optimizer.App.csproj", "{08C91804-6DC5-4E97-BDAE-5B2DCE898C76}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Optimizer.Core.Tests", "tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj", "{61E4B688-477C-4C01-BB73-05CB781A6102}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CE9DDABF-522D-484C-8F32-D51D2EA7B5F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE9DDABF-522D-484C-8F32-D51D2EA7B5F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE9DDABF-522D-484C-8F32-D51D2EA7B5F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CE9DDABF-522D-484C-8F32-D51D2EA7B5F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D8BDF357-7113-4430-96B4-21EDE2F03808}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D8BDF357-7113-4430-96B4-21EDE2F03808}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D8BDF357-7113-4430-96B4-21EDE2F03808}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D8BDF357-7113-4430-96B4-21EDE2F03808}.Release|Any CPU.Build.0 = Release|Any CPU
+		{08C91804-6DC5-4E97-BDAE-5B2DCE898C76}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08C91804-6DC5-4E97-BDAE-5B2DCE898C76}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08C91804-6DC5-4E97-BDAE-5B2DCE898C76}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08C91804-6DC5-4E97-BDAE-5B2DCE898C76}.Release|Any CPU.Build.0 = Release|Any CPU
+		{61E4B688-477C-4C01-BB73-05CB781A6102}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{61E4B688-477C-4C01-BB73-05CB781A6102}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{61E4B688-477C-4C01-BB73-05CB781A6102}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{61E4B688-477C-4C01-BB73-05CB781A6102}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

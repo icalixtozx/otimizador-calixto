@@ -1,0 +1,144 @@
+<UserControl x:Class="Optimizer.App.Views.OverviewPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Canvas}">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="34,29,34,34">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="18" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+
+      <Grid Grid.Row="0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Seu computador, em detalhe." FontSize="28" FontWeight="Bold" />
+          <TextBlock Text="Uma leitura clara do hardware e dos drivers instalados." FontSize="13" Foreground="#737373" Margin="0,7,0,0" />
+        </StackPanel>
+        <Button Grid.Column="1" Style="{StaticResource PrimaryButton}"
+                Command="{Binding DataContext.RefreshCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                VerticalAlignment="Center" Padding="17,11">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="↻" FontSize="16" Foreground="White" VerticalAlignment="Center" Margin="0,0,7,1" />
+            <TextBlock Text="Analisar novamente" Foreground="White" />
+          </StackPanel>
+        </Button>
+      </Grid>
+
+      <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="17,13">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Border Grid.Row="0" Width="29" Height="29" Background="#F0F0EE" CornerRadius="8" VerticalAlignment="Center">
+            <TextBlock Text="i" FontFamily="Georgia" FontStyle="Italic" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel Grid.Row="0" Grid.Column="1" Margin="11,0,8,0" VerticalAlignment="Center">
+            <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold" />
+            <TextBlock Text="A análise é local e somente leitura. O app não promete ganho de FPS ou redução de ping." FontSize="11" Foreground="#777777" Margin="0,3,0,0" />
+          </StackPanel>
+          <ProgressBar Grid.Row="0" Grid.Column="2" Width="64" Height="3" IsIndeterminate="True"
+                       Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" VerticalAlignment="Center" />
+          <ItemsControl Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ItemsSource="{Binding Inventory.Warnings}"
+                        Margin="11,9,0,0" Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibility}}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,2,0,0" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding ErrorMessage}"
+                     FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="11,7,0,0"
+                     Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="4">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="14" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="14" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Style="{StaticResource CardBorder}" MinHeight="127">
+          <StackPanel>
+            <TextBlock Text="WINDOWS" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="{Binding WindowsLabel}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,13,0,0" />
+            <TextBlock Text="Edição, build e arquitetura reportadas pelo sistema" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,7,0,0" />
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="2" Style="{StaticResource CardBorder}" MinHeight="127">
+          <StackPanel>
+            <TextBlock Text="PROCESSADOR" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="{Binding ProcessorLabel}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,13,0,0" />
+            <TextBlock Text="Identificação fornecida pelo Windows" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,7,0,0" />
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="4" Style="{StaticResource CardBorder}" MinHeight="127">
+          <StackPanel>
+            <TextBlock Text="MEMÓRIA INSTALADA" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="{Binding MemoryLabel}" FontSize="20" FontWeight="Bold" Margin="0,10,0,0" />
+            <TextBlock Text="Capacidade reportada pelo Windows" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,5,0,0" />
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Grid Grid.Row="6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="1.2*" />
+          <ColumnDefinition Width="14" />
+          <ColumnDefinition Width="0.8*" />
+        </Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="COMPONENTES" FontSize="12" FontWeight="Bold" />
+            <TextBlock Text="Placa de vídeo" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,17,0,5" />
+            <TextBlock Text="{Binding GraphicsLabel}" FontSize="12" TextWrapping="Wrap" />
+            <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
+            <TextBlock Text="Placa-mãe" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="{Binding MotherboardLabel}" FontSize="12" TextWrapping="Wrap" />
+            <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
+            <TextBlock Text="Armazenamento" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="{Binding StorageLabel}" FontSize="11" TextWrapping="Wrap" LineHeight="17" />
+            <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
+            <TextBlock Text="Adaptadores de rede" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="{Binding NetworkLabel}" FontSize="11" TextWrapping="Wrap" LineHeight="17" />
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="DRIVERS" FontSize="12" FontWeight="Bold" />
+            <TextBlock Text="Identificador local" FontSize="11" Foreground="#777777" Margin="0,5,0,15" />
+            <TextBlock Text="O inventário mostra versões e fornecedores reportados pelo Windows. Não compara com catálogos externos e não determina se um pacote é o mais recente." FontSize="11" Foreground="#656565" TextWrapping="Wrap" LineHeight="17" />
+            <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,18,0,0"
+                    Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="drivers">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Abrir inventário" />
+                <TextBlock Text="  →" FontSize="15" />
+              </StackPanel>
+            </Button>
+            <Border Background="#F5F5F3" CornerRadius="9" Padding="11" Margin="0,18,0,0">
+              <TextBlock Text="Sem ajustes nesta versão. Perfis, otimizações, rede e prioridades continuam indisponíveis até serem implementados e validados." FontSize="10" Foreground="#666666" TextWrapping="Wrap" LineHeight="15" />
+            </Border>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

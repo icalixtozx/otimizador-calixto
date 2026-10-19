@@ -1,0 +1,180 @@
+<UserControl x:Class="Optimizer.App.Views.DriversPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Canvas}">
+  <Grid Margin="34,28,34,31">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="17" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="16" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="12" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <StackPanel VerticalAlignment="Center">
+        <TextBlock Text="Identificador de drivers" FontSize="27" FontWeight="Bold" />
+        <TextBlock Text="Veja o que o Windows reporta sobre dispositivos e drivers instalados." FontSize="12" Foreground="#737373" Margin="0,7,0,0" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <Button Style="{StaticResource QuietButton}" Command="{Binding ReloadCommand}" IsEnabled="{Binding IsNotLoading}" Margin="0,0,9,0">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="↻" FontSize="16" Margin="0,0,6,0" />
+            <TextBlock Text="Atualizar" />
+          </StackPanel>
+        </Button>
+        <Button Style="{StaticResource PrimaryButton}" Command="{Binding ExportCommand}">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="↓" FontSize="16" Foreground="White" Margin="0,0,6,0" />
+            <TextBlock Text="Exportar CSV" Foreground="White" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
+    </Grid>
+
+    <Border Grid.Row="2" Style="{StaticResource CardBorder}" Padding="15,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Border Width="28" Height="28" CornerRadius="8" Background="#F0F0EE" VerticalAlignment="Center">
+          <TextBlock Text="i" FontFamily="Georgia" FontStyle="Italic" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <StackPanel Grid.Column="1" Margin="10,0,9,0" VerticalAlignment="Center">
+          <TextBlock Text="{Binding StatusMessage}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding CollectedAtLabel}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+        </StackPanel>
+        <ProgressBar Grid.Column="2" Width="55" Height="3" IsIndeterminate="True"
+                     Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" VerticalAlignment="Center" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="4">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock Text="{Binding DriverCountLabel}" FontSize="11" FontWeight="SemiBold" Foreground="#555555" />
+        <TextBlock Text="  ·  IDs pessoais são omitidos no CSV" FontSize="10" Foreground="#888888" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal">
+        <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="11,0" Margin="0,0,9,0">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="125" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="⌕" FontSize="18" Foreground="#777777" VerticalAlignment="Center" Margin="0,0,5,0" />
+            <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                     BorderThickness="0" Background="Transparent" FontSize="11" Padding="0,8"
+                     VerticalContentAlignment="Center" ToolTip="Buscar por dispositivo, fornecedor, versão ou INF" />
+            <TextBlock Grid.Column="2" Text="×" FontSize="15" Foreground="#999999" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+        <ComboBox ItemsSource="{Binding FilterOptions}" SelectedItem="{Binding SelectedFilter}"
+                  Width="165" Height="36" FontSize="11" Padding="8,5"
+                  Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                  DisplayMemberPath="Label" />
+      </StackPanel>
+    </Grid>
+
+    <Border Grid.Row="6" Style="{StaticResource CardBorder}" Padding="0" ClipToBounds="True">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="*" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <DataGrid Grid.Row="0" ItemsSource="{Binding FilteredDrivers}"
+                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                  CanUserDeleteRows="False" CanUserReorderColumns="True" CanUserResizeRows="False"
+                  GridLinesVisibility="None" HeadersVisibility="Column" RowHeight="47"
+                  Background="White" BorderThickness="0" RowBackground="White" AlternatingRowBackground="#FCFCFB"
+                  EnableRowVirtualization="True" EnableColumnVirtualization="True"
+                  Visibility="{Binding ShowDriverGrid, Converter={StaticResource BoolToVisibility}}">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="DISPOSITIVO" Binding="{Binding DeviceName}" Width="2.2*" />
+            <DataGridTextColumn Header="FORNECEDOR" Binding="{Binding Provider, TargetNullValue=—}" Width="1.5*" />
+            <DataGridTextColumn Header="VERSÃO" Binding="{Binding Version, TargetNullValue=—}" Width="1.2*" />
+            <DataGridTextColumn Header="DATA INFORMADA" Binding="{Binding DriverDateRaw, TargetNullValue=—}" Width="1.3*" />
+            <DataGridTextColumn Header="INF" Binding="{Binding InfName, TargetNullValue=—}" Width="1.1*" />
+            <DataGridTemplateColumn Header="ASSINATURA" Width="1.15*">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <Border CornerRadius="6" Padding="8,4" HorizontalAlignment="Left"
+                          Background="{Binding IsSigned, Converter={StaticResource SignatureBackgroundConverter}}">
+                    <TextBlock Text="{Binding IsSigned, Converter={StaticResource SignatureLabelConverter}}" FontSize="10" FontWeight="SemiBold"
+                               Foreground="{Binding IsSigned, Converter={StaticResource SignatureForegroundConverter}}" />
+                  </Border>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="ESTADO PnP" Width="1*">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding ProblemCode, Converter={StaticResource ProblemCodeConverter}}" FontSize="10"
+                             Foreground="{Binding ProblemCode, Converter={StaticResource ProblemForegroundConverter}}" VerticalAlignment="Center" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}">
+          <ProgressBar Width="180" Height="3" IsIndeterminate="True" HorizontalAlignment="Center" />
+          <TextBlock Text="Consultando o inventário local…" Foreground="#666666" FontSize="12" Margin="0,17,0,0" HorizontalAlignment="Center" />
+          <TextBlock Text="A janela continua responsiva durante a leitura." Foreground="#999999" FontSize="10" Margin="0,5,0,0" HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="390"
+                    Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+          <Border Width="42" Height="42" Background="#F4F4F2" CornerRadius="12" HorizontalAlignment="Center">
+            <TextBlock Text="!" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Text="Não foi possível ler os drivers" FontSize="15" FontWeight="Bold" Margin="0,15,0,0" HorizontalAlignment="Center" />
+          <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" TextAlignment="Center" Foreground="#777777" FontSize="11" Margin="0,7,0,0" />
+          <Button Style="{StaticResource QuietButton}" Command="{Binding ReloadCommand}" Margin="0,16,0,0" HorizontalAlignment="Center">
+            <TextBlock Text="Tentar novamente" />
+          </Button>
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400"
+                    Visibility="{Binding HasNoMatches, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="Nenhum driver corresponde à busca" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
+          <TextBlock Text="Tente outro termo ou altere o filtro de assinatura." FontSize="11" Foreground="#777777" Margin="0,7,0,0" HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400"
+                    Visibility="{Binding IsEmptyState, Converter={StaticResource BoolToVisibility}}">
+          <Border Width="42" Height="42" Background="#F4F4F2" CornerRadius="12" HorizontalAlignment="Center">
+            <TextBlock Text="▦" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <TextBlock Text="Nenhum driver retornado" FontSize="15" FontWeight="Bold" Margin="0,15,0,0" HorizontalAlignment="Center" />
+          <TextBlock Text="A consulta respondeu sem itens. Isso é diferente de uma falha de leitura." FontSize="11" Foreground="#777777" TextWrapping="Wrap" TextAlignment="Center" Margin="0,7,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="13,9"
+                Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="{Binding StatusMessage}" FontSize="10" Foreground="#6B6B6B" TextWrapping="Wrap" />
+        </Border>
+
+        <Border Grid.Row="2" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="13,9"
+                Visibility="{Binding ExportFeedback, Converter={StaticResource StringToVisibilityConverter}}">
+          <TextBlock Text="{Binding ExportFeedback}" FontSize="10" Foreground="#6B6B6B" TextWrapping="Wrap" />
+        </Border>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>
