@@ -195,7 +195,7 @@ Este registro atualiza a distribuição do item 10 com a documentação final e 
 
 ## 14. Matriz oficial, SDK e validações pendentes — 2026-10-19
 
-Base examinada: commit 88e03ea8aa34a30c2952516cc25a9c4c47907253, árvore limpa no início da revisão. Nenhum patch de código futuro foi incorporado nem alterado nesta etapa.
+Base examinada: commit 88e03ea8aa34a30c2952516cc25a9c4c47907253, árvore limpa no início da revisão. Nenhum patch de código futuro foi incorporado nem alterado nesta etapa. Os estados iniciais do SDK e do instalador foram atualizados após autorização na seção 15.
 
 ### Diagnóstico do SDK
 
@@ -214,14 +214,14 @@ No diretório do repositório, dotnet build não começou: a CLI não encontrou 
 
 | Fase | Estado | Evidência e pendência que determina o estado |
 | --- | --- | --- |
-| 0 — Ambiente e decisões | **Parcial** | Solução WPF e diagnóstico local existem; Windows foi observado antes. Neste exame o repo pede SDK 10 e só há runtime 8; a proveniência exata do pacote 0.6 não está fechada. |
+| 0 — Ambiente e decisões | **Parcial** | SDK 10.0.402 agora está instalado em pasta do usuário e build/testes locais passaram; a proveniência histórica exata do pacote 0.6 segue sem binlog/manifesto. Compatibilidade em outro PC permanece. |
 | 1 — Inventário e drivers somente leitura | **Concluído localmente** | WMI/PowrProf reais foram comparados no PC de desenvolvimento; 179 dispositivos/drivers e 5 planos foram vistos; exportação sanitizada e filtros têm cobertura. Não demonstra compatibilidade em outro PC. |
 | 2 — Motor, planos, diário e simulação | **Concluído no escopo simulado** | Catálogo tipado, perfis, prévia, consentimento, diário e recuperação simulada existem; 54 checks foram registrados como aprovados. Nenhum desses testes fake prova escrita real. |
 | 3 — Primeiro ajuste real reversível | **Bloqueado para validação real** | Código técnico VIDEOIDLE e modo AC/DC existe; capturas reais são somente leitura. Ciclo real de aplicação/verificação/reversão não foi autorizado nem executado nesta etapa. |
 | 4 — Energia, Registro, políticas e processos | **Parcial** | Energia tem leitura/captura e fluxo com confirmação; Registro, políticas e prioridade de processos continuam indisponíveis. Escrita de energia permanece sem validação real. |
 | 5 — Rede e GPU compatível | **Não iniciado** | Há propostas documentadas; não há diagnóstico de rede nem integração que configure preferência de GPU. Inventariar um adaptador não equivale a um módulo de rede/GPU. |
 | 6 — Pós-formatação e drivers assistidos | **Parcial** | Identificação de drivers foi validada localmente. Seleção de fontes oficiais, análise e instalação assistida de INF, e seleção/instalação de programas não existem. |
-| 7 — Publicação, instalador e recuperação | **Parcial** | ZIP/Setup 0.6 foram compilados e identificados por hash; a instalação/desinstalação 0.5 foi testada historicamente. Instalação, upgrade 0.5→0.6 e desinstalação 0.6 aguardam aprovação. Compatibilidade em outro PC e recuperação prática pendem. |
+| 7 — Publicação, instalador e recuperação | **Parcial** | ZIP/Setup 0.6 foram compilados e identificados por hash; instalação 0.5.0, upgrade 0.6.0 e desinstalação passaram em diretório de teste neste PC. Compatibilidade em outro PC e recuperação prática permanecem pendentes. |
 | 8 — Controles extremos específicos por hardware | **Não iniciado** | Não há matriz de CPU/GPU/placa-mãe, integração de fabricante, licença e validação por modelo. O documento de candidatos não constitui suporte implementado. |
 
 Esta matriz não declara o produto completo. Empacotar não conclui as fases de funcionalidade, validação ou recuperação.
@@ -235,10 +235,41 @@ Esta matriz não declara o produto completo. Empacotar não conclui as fases de 
 
 ### Instalação, atualização e desinstalação 0.6.0
 
-O ciclo está apenas preparado em docs/TESTING.md e aguarda autorização. A instalação por usuário usa o mesmo AppId nas versões 0.5 e 0.6, grava em LocalAppData/Programs, cria atalho e chave de desinstalação HKCU e não abre o app automaticamente. O script não define a seção UninstallDelete. O histórico persistente está em %LOCALAPPDATA%\CalixtoOptimizer\History; o código não possui armazenamento separado de configurações do usuário. A comparação de histórico pode ser testada; preservação de configurações inexistentes não pode ser alegada.
+O roteiro em docs/TESTING.md foi preparado antes da autorização e executado conforme a seção 15. A instalação por usuário usa o mesmo AppId nas versões 0.5 e 0.6, grava em LocalAppData/Programs, cria atalho e chave de desinstalação HKCU e não abre o app automaticamente. O script não define a seção UninstallDelete. O histórico persistente está em %LOCALAPPDATA%\CalixtoOptimizer\History; o código não possui armazenamento separado de configurações do usuário. A comparação de histórico pode ser testada; preservação de configurações inexistentes não pode ser alegada.
 
-Nenhuma instalação, atualização ou desinstalação 0.6 foi executada. Nenhum setter de energia foi chamado.
+Na data deste registro, nenhuma instalação, atualização ou desinstalação 0.6 havia sido executada; veja o resultado posterior na seção 15. Nenhum setter de energia foi chamado.
 
 ### Próxima menor entrega de desenvolvimento proposta
 
 Após fechar a reprodutibilidade do SDK, a menor fatia nova prevista é a fase 5: um diagnóstico de conectividade, RTT e perda para destino informado pelo usuário, somente leitura, com resultado inconclusivo explícito quando ICMP estiver bloqueado. Não escrever DNS, MTU, TCP, RSS, offloads ou propriedades da NIC. Isso não repete inventário, motor simulado ou modo de energia. Nenhum código foi iniciado nesta etapa.
+
+## 15. SDK reproduzido e ciclo do instalador 0.6.0 — 2026-10-19
+
+Esta seção atualiza o diagnóstico inicial da seção 14 após as autorizações recebidas.
+
+### SDK, build e testes
+
+- WinGet estava disponível, mas não encontrou a versão exata 10.0.402 no catálogo consultado. Usei o script oficial da Microsoft, https://dot.net/v1/dotnet-install.ps1, documentado em https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script, para instalar SDK 10.0.402 x64 em %LOCALAPPDATA%/dotnet-sdk-10.0.402 com -NoPath. Não foi alterado o PATH permanente nem global.json.
+- dotnet --list-sdks usando esse executável lista 10.0.402. dotnet --info mostra SDK 10.0.402, MSBuild 18.9.15, host/runtime 10.0.13, Windows x64 build 26300. Restore/build/test foram executados no diretório do repositório Downloads, chamando esse dotnet.exe explicitamente. A seleção no repo respeita global.json 10.0.100 com latestFeature.
+- dotnet restore CalixtoOptimizer.sln: êxito.
+- dotnet build CalixtoOptimizer.sln --configuration Release --no-restore: êxito, 0 avisos e 0 erros.
+- dotnet run --project tests/Optimizer.Core.Tests/Optimizer.Core.Tests.csproj --configuration Release --no-build: 54/54 model checks aprovados; os adaptadores de escrita continuam simulados.
+- O build novo confirma compilação local pelo SDK 10.0.402, mas não recria ZIP/EXE nem prova retrospectivamente qual SDK gerou cada pacote anterior. Não houve republicação.
+
+### Instalação, upgrade e desinstalação reais
+
+A autorização foi executada apenas em %LOCALAPPDATA%/Programs/CalixtoOptimizer-Test. A pré-checagem não encontrou instalação com o mesmo AppId, processo do app, diretório de teste ou atalho correspondente. Uma cópia temporária do histórico foi mantida até a comparação terminar.
+
+| Operação | Resultado verificado |
+| --- | --- |
+| Instalar setup 0.5.0 | Exit code 0; Optimizer.App.exe versão 0.5.0.0; DisplayVersion 0.5.0-experimental; uma chave de desinstalação e um atalho. |
+| Atualizar para setup 0.6.0 | Exit code 0; executável versão 0.6.0.0; DisplayVersion 0.6.0-experimental; uma chave e um atalho no mesmo destino. |
+| Desinstalar 0.6.0 | Exit code 0; removidos diretório de teste, chave HKCU e atalho; nenhum processo do app permaneceu. |
+| Preservação do histórico | Um arquivo, 609 bytes; manifesto e SHA-256 antes/depois idênticos. Cópia temporária e logs foram removidos após a comparação aprovada. |
+
+- SHA-256 do setup 0.5.0 usado: D13B0A31222EA213444E7995B761AB67590420BCC28B7DE5E1E5E2B2BECFB19B, 46.681.264 bytes.
+- SHA-256 do setup 0.6.0 usado: 1C90177F72F6DDBF89587D3CBADB044A8339EAC96A7AC3DE1C20F6E463223A12, 46.707.153 bytes.
+- Nenhum dos apps foi iniciado; os testes não avaliaram a UI, migração de configurações separadas (o app não tem esse store) ou compatibilidade em outro PC.
+- Nenhum setter de energia, registro de ajustes, serviço, política, rede, driver ou prioridade foi chamado.
+
+A matriz da seção 14 foi atualizada para refletir o SDK e o ciclo de instalação. A fase 7 continua parcial: teste de setup passou neste PC, mas não conclui recuperação prática nem compatibilidade em outro computador. A próxima menor fatia continua o diagnóstico somente de leitura de conectividade/RTT/perda da fase 5, ainda não iniciado.
