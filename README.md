@@ -20,9 +20,9 @@ A captura técnica não inclui bateria/DC, não é backup do Windows e fica sepa
 
 ## Distribuição experimental
 
-Versão 0.5.0-experimental, ZIP autocontido Windows x64. Ainda não validada em outro computador. A fonte do instalador Inno Setup está em packaging/; o EXE depende da disponibilização do compilador. Instalação e desinstalação não foram testadas.
+Versão 0.5.0-experimental para Windows x64. O ZIP autocontido e o instalador EXE foram compilados; instalação e desinstalação foram testadas neste PC de desenvolvimento. Ainda não foi validada em outro computador. O Setup não tem assinatura digital própria e a GitHub pre-release ainda não foi publicada.
 
-Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md) e [instruções do instalador](packaging/README-INSTALADOR.md).
+Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md), [artefatos e instalador](packaging/README-INSTALADOR.md) e [passos para publicar a pre-release](docs/RELEASE-EXPERIMENTAL.md).
 
 ## Segurança e limitações
 
