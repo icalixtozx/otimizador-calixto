@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Reflection;
 using Optimizer.Core.Inventory;
 using Optimizer.Core.Adjustments;
 using Optimizer.Core.Profiles;
@@ -14,12 +15,21 @@ namespace Optimizer.App.ViewModels;
 
 public sealed class MainWindowViewModel : ObservableObject
 {
+    private static readonly string InformationalVersion =
+        typeof(MainWindowViewModel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? string.Empty;
+    private static readonly string SourceCommit = ReadSourceCommit(InformationalVersion);
+
     private readonly IComputerInventoryService _computerInventoryService;
     private readonly IPowerPlanInventoryService _powerPlanInventoryService;
     private object _currentPage;
     private string _selectedNavigationKey = "overview";
     private string _pageTitle = "Visão geral";
     private bool _isScanning;
+
+    public string BuildVersionLabel => "PREVIEW R3 · v0.6.0 experimental";
+    public string BuildCommitLabel => SourceCommit == "unknown" ? "commit indisponível" : $"commit {SourceCommit[..Math.Min(7, SourceCommit.Length)]}";
+    public string BuildCommitFull => SourceCommit == "unknown" ? "Commit de origem não registrado nos metadados deste executável." : SourceCommit;
+    public string WindowTitle => $"Calixto Optimizer · Preview R3 · {BuildCommitLabel}";
 
     public MainWindowViewModel(IComputerInventoryService computerInventoryService, IDriverInventoryService driverInventoryService, IPowerPlanInventoryService powerPlanInventoryService)
     {
@@ -227,5 +237,13 @@ public sealed class MainWindowViewModel : ObservableObject
         {
             IsScanning = false;
         }
+    }
+
+    private static string ReadSourceCommit(string informationalVersion)
+    {
+        var separator = informationalVersion.LastIndexOf('+');
+        if (separator < 0 || separator == informationalVersion.Length - 1) return "unknown";
+        var revision = informationalVersion[(separator + 1)..];
+        return revision.All(Uri.IsHexDigit) ? revision : "unknown";
     }
 }
