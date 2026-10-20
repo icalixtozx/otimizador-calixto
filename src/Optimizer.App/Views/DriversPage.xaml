@@ -186,6 +186,7 @@
               <StackPanel>
                 <TextBlock Text="Candidatos ASUS revisados" FontSize="14" FontWeight="Bold" />
                 <TextBlock Text="A avaliação usa o inventário Plug and Play local e os arquivos revisados nesta etapa. Ela não compara versões para declarar driver desatualizado e não instala nada." FontSize="10" Foreground="#686868" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <TextBlock Text="Etapas distintas: análise e prévia não mudam o sistema; staging adicionaria o pacote ao Driver Store; associação selecionaria um driver para um dispositivo. Staging e associação continuam bloqueados." FontSize="10" FontWeight="SemiBold" Foreground="#5A4A2A" TextWrapping="Wrap" Margin="0,5,0,0" />
                 <TextBlock Text="{Binding CandidateInventoryStatus}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,6,0,0" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                   <Button Style="{StaticResource QuietButton}" Command="{Binding ImportLocalPackageCommand}" IsEnabled="{Binding IsNotLoading}">
@@ -315,6 +316,10 @@
                         <Run Text="Arquivos necessários encontrados e verificados: " /><Run Text="{Binding RequiredPackageFiles.Count}" />
                         <Run Text=" · INF SHA-256: " /><Run Text="{Binding InfSha256, TargetNullValue='indisponível'}" />
                       </TextBlock>
+                      <TextBlock FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                        <Run Text="DDInstall aplicável: " /><Run Text="{Binding ApplicableInstallSectionsSummary}" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding DependencyResolutionSummary}" FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
                       <TextBlock Text="{Binding ReasonsSummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
                       <Button Style="{StaticResource QuietButton}"
                               Command="{Binding DataContext.PreparePackageInstallPreviewCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -343,6 +348,12 @@
                 <TextBlock Text="{Binding SelectedPackageReview.PossibleImpact}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
                 <TextBlock Text="{Binding SelectedPackageReview.RequiredPermissions}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
                 <TextBlock Text="{Binding SelectedPackageReview.RecoveryLimits}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <Border Background="#FFF7E8" BorderBrush="#E8D4AD" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,7,0,0">
+                  <StackPanel>
+                    <TextBlock Text="ALCANCE DA ASSOCIAÇÃO" FontSize="9" FontWeight="Bold" Foreground="#6A4C17" />
+                    <TextBlock Text="{Binding SelectedPackageReview.InstallationReach}" FontSize="10" Foreground="#5C4A2A" TextWrapping="Wrap" Margin="0,4,0,0" />
+                  </StackPanel>
+                </Border>
                 <CheckBox Content="Li e aceito as consequências desta prévia específica. Isto não autoriza a instalação real."
                           IsChecked="{Binding DriverInstallConsequencesAccepted, Mode=TwoWay}" FontSize="10" Foreground="#333333" Margin="0,10,0,0" />
                 <Button Style="{StaticResource QuietButton}" Command="{Binding RecordPackageInstallConsentAndCaptureCommand}"

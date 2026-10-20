@@ -41,10 +41,40 @@ public interface IDriverPackageSignatureVerifier
     DriverPackageSignatureResult VerifyCatalogMember(string filePath, string catalogPath);
 }
 
+public enum DriverPackageDependencyStatus
+{
+    Available,
+    Missing,
+    Ambiguous,
+    Unavailable
+}
+
+public sealed record DriverPackageSystemDependencyResult(
+    DriverPackageDependencyStatus Status,
+    string Detail);
+
+/// <summary>Read-only validation of INF files and sections supplied by the current Windows installation.</summary>
+public interface IDriverPackageSystemInfDependencyResolver
+{
+    DriverPackageSystemDependencyResult Verify(
+        IReadOnlyList<string> includedInfNames,
+        IReadOnlyList<string> requiredSections);
+}
+
+public sealed class UnavailableDriverPackageSystemInfDependencyResolver : IDriverPackageSystemInfDependencyResolver
+{
+    public DriverPackageSystemDependencyResult Verify(
+        IReadOnlyList<string> includedInfNames,
+        IReadOnlyList<string> requiredSections) => new(
+            DriverPackageDependencyStatus.Unavailable,
+            "O analisador não tem um resolvedor para validar os INF e seções do Windows referenciados pelo pacote.");
+}
+
 public sealed record DriverPackageDeviceMatch(
     DriverInfo Device,
     DriverPackageMatchStrength Strength,
-    string MatchedId);
+    string MatchedId,
+    IReadOnlyList<string>? ApplicableInstallSections = null);
 
 public sealed record DriverPackageInfCandidate(
     string InfName,
@@ -62,7 +92,8 @@ public sealed record DriverPackageInfCandidate(
     string? SourceFileName = null,
     string? InfSha256 = null,
     IReadOnlyDictionary<string, string>? PayloadFilesSha256 = null,
-    string? PackageRootPath = null)
+    string? PackageRootPath = null,
+    string? DependencyResolutionSummary = null)
 {
     public string OutcomeLabel => Outcome switch
     {
@@ -85,14 +116,19 @@ public sealed record DriverPackageInfCandidate(
 
     public bool CanPrepareInstallation => Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks &&
         SignatureStatus == DriverPackageVerificationStatus.Valid &&
-        DeviceMatches.Count == 1 && DeviceMatches[0].Strength == DriverPackageMatchStrength.ExactHardwareId;
+        DeviceMatches.Count == 1 && DeviceMatches[0].Strength == DriverPackageMatchStrength.ExactHardwareId &&
+        DeviceMatches[0].ApplicableInstallSections?.Count == 1;
 
-    public string TargetSummary => DeviceMatches.Count switch
-    {
-        0 => "Nenhum dispositivo do inventário local corresponde.",
-        1 => $"{DeviceMatches[0].Device.DeviceName} · {DeviceMatches[0].Strength}",
-        _ => $"{DeviceMatches.Count} dispositivos correspondem; escolha e revisão adicionais são necessárias."
-    };
+    public string TargetSummary => DeviceMatches.Count == 0
+        ? "Nenhum dispositivo do inventário local corresponde."
+        : "Correspondências no inventário lido:" + Environment.NewLine + string.Join(Environment.NewLine,
+            DeviceMatches.Select(match => $"• {match.Device.DeviceName} · {match.Strength} · {match.Device.DeviceId ?? "ID não informado"} · ID do pacote: {match.MatchedId}")) +
+          (DeviceMatches.Count > 1 ? Environment.NewLine + "Há vários alvos; a prévia permanece bloqueada." : string.Empty);
+
+    public string ApplicableInstallSectionsSummary => DeviceMatches.Count == 0
+        ? "Nenhuma seção de instalação aplicável identificada."
+        : string.Join("; ", DeviceMatches.SelectMany(match => match.ApplicableInstallSections ?? Array.Empty<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase));
 
     public string ReasonsSummary => Reasons.Count == 0
         ? "As verificações documentadas para este resultado foram concluídas."
@@ -154,7 +190,8 @@ public sealed record DriverPackageInstallReview(
     DateTimeOffset ReviewedAtUtc,
     string RequiredPermissions,
     string PossibleImpact,
-    string RecoveryLimits);
+    string RecoveryLimits,
+    string InstallationReach);
 
 public enum DriverPackageInstallStepStatus
 {

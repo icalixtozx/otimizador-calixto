@@ -37,6 +37,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("generic ZIP analysis verifies exact INF matches and disposes only its owned extraction", GenericDriverPackageZipAnalysisIsBoundedAndScoped),
     ("generic ZIP analysis blocks traversal and archive size-limit violations", GenericDriverPackageZipRejectsUnsafeAndOversizedInputs),
     ("generic package analysis separates compatible, incompatible, ambiguous, and incomplete candidates", GenericDriverPackageOutcomesAreConservative),
+    ("INF payload checks follow only applicable DDInstall CopyFiles sections", GenericInfDependenciesFollowApplicableInstallSections),
+    ("INF analysis blocks unresolved required Windows Include and Needs dependencies", GenericInfAnalysisBlocksMissingSystemDependencies),
+    ("INF model entries distinguish install section from Hardware and Compatible IDs", GenericInfModelMatchingUsesOnlyDeviceIds),
     ("local INF analysis reads package files without extraction", LocalInfAnalysisIsReadOnly),
     ("auxiliary INF files are visible as incomplete and cannot become driver previews", AuxiliaryInfIsNotDriverCandidate),
     ("driver install preview reuses consent and history while default mutation policy blocks the backend", DriverInstallPreviewAndDefaultPolicyAreSafe),
@@ -907,8 +910,10 @@ static async Task GenericDriverPackageOutcomesAreConservative()
         using var duplicate = await analyzer.AnalyzeAsync(zipPath,
             [new DriverInfo("Target A", "PCI\\A", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId]),
              new DriverInfo("Target B", "PCI\\B", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
-        Assert(duplicate.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Ambiguous,
-            "more than one exact device match should not choose a target automatically");
+        Assert(duplicate.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Ambiguous &&
+               duplicate.Candidates.Single().TargetSummary.Contains("PCI\\A", StringComparison.Ordinal) &&
+               duplicate.Candidates.Single().TargetSummary.Contains("PCI\\B", StringComparison.Ordinal),
+            "more than one exact match should block preview and enumerate every discovered device in the reach summary");
 
         var missingPayloadZip = Path.Combine(directory, "missing-payload.zip");
         CreateSampleDriverZip(missingPayloadZip, includeDriverBinary: false);
@@ -929,6 +934,139 @@ static async Task GenericDriverPackageOutcomesAreConservative()
                 [new DriverInfo("Target", "PCI\\ONE", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
         Assert(invalidSignature.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incompatible,
             "an explicitly rejected package signature must be classified as incompatible, not as an unknown incomplete check");
+    });
+}
+
+static async Task GenericInfDependenciesFollowApplicableInstallSections()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "applicable-sections.zip");
+        using (var stream = File.Create(zipPath))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            Add("selected.inf", """
+                [Version]
+                Signature="$Windows NT$"
+                Class=Net
+                Provider=Sample
+                DriverVer=01/01/2025,1.0.0.0
+                CatalogFile=selected.cat
+                [Manufacturer]
+                %Maker%=Models,NTamd64.10.0...22000
+                [Models.NTamd64.10.0...22000]
+                %Device%=InstallOld,PCI\VEN_1234&DEV_5678
+                [InstallOld.NT]
+                CopyFiles=Selected.Copy
+                [Selected.Copy]
+                selected.sys,,,2
+                [InstallOld.NTamd64.10.0...99999]
+                Include=missing-system.inf
+                Needs=Missing.System.Section
+                CopyFiles=Future.Copy
+                [Future.Copy]
+                future.sys
+                [Unreferenced.Copy]
+                missing-coinstaller.dll
+                [SourceDisksFiles]
+                selected.sys=1
+                future.sys=1
+                missing-coinstaller.dll=1
+                """);
+            Add("selected.cat", "catalog placeholder");
+            Add("selected.sys", "payload");
+            void Add(string name, string content)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                writer.Write(content);
+            }
+        }
+
+        var device = new DriverInfo("Target", "PCI\\TARGET", null, "1", null, "old.inf", true, null, 0,
+            HardwareIds: ["PCI\\VEN_1234&DEV_5678"]);
+        var unusedSectionDependency = new FakeSystemInfDependencyResolver(
+            new(DriverPackageDependencyStatus.Missing, "must not be checked"));
+        using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier(), unusedSectionDependency)
+            .AnalyzeAsync(zipPath, [device], new("amd64", 10, 0, 26300));
+        var candidate = result.Candidates.Single();
+        Assert(candidate.RequiredPackageFiles.SequenceEqual(["selected.sys"], StringComparer.OrdinalIgnoreCase),
+            "Only the selected model's applicable DDInstall CopyFiles payload should be required; unused and future section files must be ignored");
+        Assert(candidate.Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks && candidate.CanPrepareInstallation,
+            "files mentioned only in unreferenced or non-applicable install sections must not block the selected model");
+        Assert(unusedSectionDependency.LastIncludedInfNames.Count == 0,
+            "Include/Needs from a DDInstall variant requiring a future Windows build must not be resolved for this host");
+        Assert(candidate.ApplicableInstallSectionsSummary == "InstallOld.NT",
+            "The selected model should retain the applicable DDInstall section used to derive payload dependencies");
+    });
+}
+
+static async Task GenericInfAnalysisBlocksMissingSystemDependencies()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "missing-system-dependency.zip");
+        using (var stream = File.Create(zipPath))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            Add("dependent.inf", """
+                [Version]
+                Signature="$Windows NT$"
+                Class=Net
+                Provider=Sample
+                DriverVer=01/01/2025,1.0.0.0
+                CatalogFile=dependent.cat
+                [Manufacturer]
+                %Maker%=Models,NTamd64.10.0
+                [Models.NTamd64.10.0]
+                %Device%=Install,PCI\VEN_1234&DEV_5678
+                [Install.NT]
+                Include=systembus.inf
+                Needs=SystemBus.Install
+                CopyFiles=Driver.Copy
+                [Driver.Copy]
+                driver.sys
+                [SourceDisksFiles]
+                driver.sys=1
+                """);
+            Add("dependent.cat", "catalog placeholder");
+            Add("driver.sys", "payload");
+            void Add(string name, string content)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                writer.Write(content);
+            }
+        }
+
+        var device = new DriverInfo("Target", "PCI\\TARGET", null, "1", null, "old.inf", true, null, 0,
+            HardwareIds: ["PCI\\VEN_1234&DEV_5678"]);
+        var resolver = new FakeSystemInfDependencyResolver(new(DriverPackageDependencyStatus.Missing, "systembus.inf ou SystemBus.Install ausente"));
+        using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier(), resolver)
+            .AnalyzeAsync(zipPath, [device], new("amd64", 10, 0, 26300));
+        var candidate = result.Candidates.Single();
+        Assert(candidate.Outcome == DriverPackageAnalysisOutcome.Incomplete && !candidate.CanPrepareInstallation,
+            "An applicable Include/Needs dependency absent from the current Windows image must keep the candidate blocked");
+        Assert(candidate.Reasons.Any(reason => reason.Contains("systembus.inf", StringComparison.OrdinalIgnoreCase)),
+            "The failure should identify the unresolved system dependency rather than an unrelated package DLL");
+        Assert(resolver.LastIncludedInfNames.SequenceEqual(["systembus.inf"], StringComparer.OrdinalIgnoreCase) &&
+               resolver.LastRequiredSections.SequenceEqual(["SystemBus.Install"], StringComparer.OrdinalIgnoreCase),
+            "Only dependencies from the selected applicable install section should be sent to the system-INF resolver");
+    });
+}
+
+static async Task GenericInfModelMatchingUsesOnlyDeviceIds()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "model-id.zip");
+        CreateSampleDriverZip(zipPath);
+        var device = new DriverInfo("Target", "PCI\\TARGET", null, "1", null, "old.inf", true, null, 0,
+            HardwareIds: ["PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001"]);
+        using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(zipPath, [device], new("amd64", 10, 0, 26300));
+        var candidate = result.Candidates.Single();
+        Assert(candidate.DeviceMatches.Single().MatchedId == "PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001",
+            "The install section name from the first Models field must never be misread as a Hardware ID");
+        Assert(candidate.CanPrepareInstallation, "A unique exact device match and one resolved install section should remain eligible for preview");
     });
 }
 
@@ -993,6 +1131,9 @@ static async Task DriverInstallPreviewAndDefaultPolicyAreSafe()
                review.PossibleImpact.Contains("reinicialização", StringComparison.OrdinalIgnoreCase) &&
                review.RecoveryLimits.Contains("não garante recuperação", StringComparison.OrdinalIgnoreCase),
             "preview should communicate privilege, likely network impact and recovery limits");
+        Assert(review.InstallationReach.Contains("PnPUtil /install não aceita o ID da instância", StringComparison.Ordinal) &&
+               review.InstallationReach.Contains("não restringe esse comando", StringComparison.Ordinal),
+            "preview must disclose that PnPUtil /install is not restricted to the one enumerated devnode");
         await AssertThrowsAsync<InvalidOperationException>(() => blockedService.CaptureAsync(review, consequencesAccepted: false));
         Assert((await store.LoadAllAsync()).Count == 0, "declined consent should not create a history capture");
 
@@ -1049,6 +1190,8 @@ static string SampleDriverInf(string hardwareId) => $"""
     [Models.NTamd64.10.0...22000]
     %Device%=Install,{hardwareId}
     [Install]
+    CopyFiles=Driver.Copy
+    [Install.NT]
     CopyFiles=Driver.Copy
     [Driver.Copy]
     sample.sys
@@ -2774,6 +2917,22 @@ sealed class FakeDriverPackageSignatureVerifier(DriverPackageVerificationStatus 
 
     public DriverPackageSignatureResult VerifyCatalogMember(string filePath, string catalogPath) =>
         new(status, null, status == DriverPackageVerificationStatus.Valid ? "simulated catalog member" : "simulated member failure");
+}
+
+sealed class FakeSystemInfDependencyResolver(DriverPackageSystemDependencyResult result)
+    : IDriverPackageSystemInfDependencyResolver
+{
+    public IReadOnlyList<string> LastIncludedInfNames { get; private set; } = Array.Empty<string>();
+    public IReadOnlyList<string> LastRequiredSections { get; private set; } = Array.Empty<string>();
+
+    public DriverPackageSystemDependencyResult Verify(
+        IReadOnlyList<string> includedInfNames,
+        IReadOnlyList<string> requiredSections)
+    {
+        LastIncludedInfNames = includedInfNames;
+        LastRequiredSections = requiredSections;
+        return result;
+    }
 }
 
 sealed class FakeDriverInventoryService(IReadOnlyList<DriverInfo> drivers) : IDriverInventoryService

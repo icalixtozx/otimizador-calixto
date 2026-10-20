@@ -90,7 +90,9 @@ public sealed class DriverPackageInstallationService
             DateTimeOffset.UtcNow,
             "Administrador do Windows. Esta versão não usa worker elevado separado; a operação futura só poderá chamar o backend se o processo já estiver elevado.",
             "O adaptador de rede pode cair durante a troca; conectividade remota pode ser perdida. O Windows pode solicitar reinicialização. Nenhum ganho de desempenho é previsto.",
-            "A captura registra somente o driver ativo antes da operação. Não garante recuperação do fabricante, não remove pacotes do Driver Store e não substitui um ponto de restauração. A recuperação de dispositivo que deixe de iniciar requer procedimento manual/OEM.");
+            "A captura registra somente o driver ativo antes da operação. Não garante recuperação do fabricante, não remove pacotes do Driver Store e não substitui um ponto de restauração. A recuperação de dispositivo que deixe de iniciar requer procedimento manual/OEM.",
+            "Alcance atualmente enumerado na análise: " + candidate.TargetSummary + " " +
+            "Limite do backend atual: PnPUtil /install não aceita o ID da instância; ele pode atuar em qualquer dispositivo correspondente ao pacote. O conjunto pode mudar após a análise (por exemplo, conexão de outro dispositivo). Esta prévia de um alvo não restringe esse comando a um único devnode. Associação real continua bloqueada até adoção de uma API direcionada.");
     }
 
     /// <summary>Records accepted consequences and a fresh read-only device snapshot; never invokes a setter.</summary>

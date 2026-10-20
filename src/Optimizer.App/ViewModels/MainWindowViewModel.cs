@@ -35,7 +35,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var driverSignatureVerifier = new WindowsDriverPackageSignatureVerifier();
         Drivers = new DriversPageViewModel(
             driverInventoryService,
-            new LocalDriverPackageAnalyzer(driverSignatureVerifier),
+            new LocalDriverPackageAnalyzer(driverSignatureVerifier, new WindowsSystemInfDependencyResolver()),
             new DriverPackageInstallationService(
                 driverInventoryService,
                 new PnpUtilDriverPackageInstaller(),

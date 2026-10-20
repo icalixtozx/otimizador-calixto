@@ -260,6 +260,22 @@ O harness Core cobre correspondência por Hardware ID exato, diferenciação de 
 - A integração visual foi compilada pelo build WPF, mas a janela não foi aberta ou inspecionada. Nenhuma tela é declarada visualmente aprovada.
 - A ação **Conferir ZIP local** calcula SHA-256 sem extrair ou executar. Só reconhece hashes dos arquivos revisados; hash desconhecido não é validado. Esse fluxo não prova o conteúdo de ZIPs diferentes.
 
+## Correção do escopo INF e dependências — 2026-10-20
+
+Este resultado substitui a conclusão Wi-Fi de “arquivos ausentes” registrada na primeira versão do analisador genérico. A lista antiga confundia todas as entradas de `[SourceDisksFiles]` com arquivos obrigatórios; a documentação Microsoft exige também a diretiva `CopyFiles` aplicável.
+
+- SDK executado explicitamente: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão **10.0.402**; `global.json` permaneceu sem alterações.
+- `dotnet build CalixtoOptimizer.sln --configuration Release --no-restore`: **sucesso**, 0 avisos e 0 erros. O primeiro build da rodada foi interrompido por bloqueio do `Optimizer.App.exe` pelo processo Release PID 9280 que eu havia aberto para inspeção; encerrei somente esse processo e repeti a compilação com sucesso.
+- Harness `Optimizer.Core.Tests` Release: **103/103** checks de modelo aprovados. Novos casos verificam DDInstall aplicável e variante para build futuro (Include/Needs e arquivo ausente fora da variante não bloqueiam), dependência aplicável ausente e separação entre seção de instalação e IDs. Os testes são simulados; não chamam SetupAPI de instalação, PnPUtil ou setters.
+- Probe real WMI: inventário `Available`, 196 linhas, zero avisos. Windows 11 Professional, versão exibida 26H2, build 26300.9711, amd64. O parser/assinatura analisou os ZIPs ASUS locais sem executar conteúdo.
+- LAN: `rt68cx21x64.inf`, Hardware ID exato único, `RTL8168H.ndi.NT`, payload alcançável `rt68cx21x64.sys`; INF/catálogo e payload confirmados por SetupAPI/WinTrust. Include/Needs `pci.inf` → `PciIoSpaceNotRequired.HW` encontrado em `%WINDIR%\INF`. Resultado “compatível segundo as verificações realizadas”.
+- Wi-Fi: `netrtwlane.inf`, Hardware ID exato único, `[ASUS8821ce_FCC_REG.ndi.NT]`, `CopyFiles=RTWlanE.CopyFiles` alcança `rtwlane.sys` e `rtldata.txt`; ambos existem e passam membership no catálogo. `netvwifibus.inf` e `machine.inf` existem em `%WINDIR%\INF`, e as seções Needs relevantes foram encontradas. Resultado “compatível segundo as verificações realizadas”.
+- `rtlCoInst.dll` e `rtlCoInst.dat` não estão no ZIP, mas suas entradas em `[SourceDisksFiles]`/`[CoInstaller.CopyFiles]` não são alcançáveis pelas seções DDInstall aplicáveis ao Hardware ID, arquitetura e build deste PC. A conclusão anterior de bloqueio por essas ausências foi um falso bloqueio do analisador antigo. Nenhuma DLL avulsa foi baixada.
+- Limite: o verificador de dependências confirma existência do INF Windows e das seções Needs diretas; não valida novamente a assinatura dessas dependências nem expande recursivamente suas próprias diretivas. O analisador continua conservador em construções não entendidas.
+- Alcance da associação: `PnPUtil /install` pode atingir qualquer devnode correspondente, e o resumo lista todos os alvos do inventário na análise. A prévia não restringe o comando a um só dispositivo. Microsoft documenta `DiInstallDevice` para um devnode e driver pré-staged específicos; a API ainda não está integrada. Staging e associação reais permanecem bloqueados.
+- Visual: abri a janela do executável Release atual e tentei capturá-la com CUA. O helper mapeou o HWND do build à identidade do Preview instalado e falhou duas vezes: `window id 279447742 no longer belongs to ...Optimizer-Preview-20261019\\Optimizer.App.exe; current owner is ...`. Depois de atualizar a lista, parei. A tela não foi validada visualmente; nenhuma ação de consentimento/histórico/instalação foi clicada. O executável atualizado foi reaberto para checklist manual.
+- Nenhum ZIP/instalador novo foi produzido; R2 e seus hashes permanecem preservados. Nenhum driver foi staged, associado, instalado ou removido.
+
 ## Análise genérica e preparação bloqueada de driver — 2026-10-20
 
 ### Build e harness

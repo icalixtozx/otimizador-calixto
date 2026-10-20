@@ -17,6 +17,7 @@ public sealed class LocalDriverPackageAnalyzer
     public const int DefaultMaxEntries = 4096;
 
     private readonly IDriverPackageSignatureVerifier _signatureVerifier;
+    private readonly IDriverPackageSystemInfDependencyResolver _systemInfDependencyResolver;
     private readonly long _maxArchiveBytes;
     private readonly long _maxExpandedBytes;
     private readonly long _maxSingleFileBytes;
@@ -24,12 +25,14 @@ public sealed class LocalDriverPackageAnalyzer
 
     public LocalDriverPackageAnalyzer(
         IDriverPackageSignatureVerifier signatureVerifier,
+        IDriverPackageSystemInfDependencyResolver? systemInfDependencyResolver = null,
         long maxArchiveBytes = DefaultMaxArchiveBytes,
         long maxExpandedBytes = DefaultMaxExpandedBytes,
         long maxSingleFileBytes = DefaultMaxSingleFileBytes,
         int maxEntries = DefaultMaxEntries)
     {
         _signatureVerifier = signatureVerifier ?? throw new ArgumentNullException(nameof(signatureVerifier));
+        _systemInfDependencyResolver = systemInfDependencyResolver ?? new UnavailableDriverPackageSystemInfDependencyResolver();
         if (maxArchiveBytes <= 0 || maxExpandedBytes <= 0 || maxSingleFileBytes <= 0 || maxEntries <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxArchiveBytes), "Package analysis limits must be positive.");
         _maxArchiveBytes = maxArchiveBytes;
@@ -258,12 +261,17 @@ public sealed class LocalDriverPackageAnalyzer
                 reasons.Add($"A verificação da assinatura/membership do INF não confirmou validade: {infSignature.Detail}");
         }
 
-        var requiredFiles = document.GetRequiredPackageFiles(architecture, out var sourceFilesReason);
-        if (sourceFilesReason is not null) reasons.Add(sourceFilesReason);
+        var modelAnalysis = document.FindDeviceMatches(localDevices, platform, architecture);
+        reasons.AddRange(modelAnalysis.Reasons);
+        var dependencyAnalysis = document.GetRequiredPackageFiles(
+            architecture,
+            modelAnalysis.Matches,
+            _systemInfDependencyResolver);
+        if (dependencyAnalysis.Reason is not null) reasons.Add(dependencyAnalysis.Reason);
         var requiredPaths = new List<string>();
         var invalidPayloadMembership = false;
         var unavailablePayloadMembership = false;
-        foreach (var requiredFile in requiredFiles)
+        foreach (var requiredFile in dependencyAnalysis.Files)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (requiredFile.Contains('%'))
@@ -306,8 +314,6 @@ public sealed class LocalDriverPackageAnalyzer
             }
         }
 
-        var modelAnalysis = document.FindDeviceMatches(localDevices, platform, architecture);
-        reasons.AddRange(modelAnalysis.Reasons);
         var exactMatches = modelAnalysis.Matches.Where(match => match.Strength == DriverPackageMatchStrength.ExactHardwareId).ToArray();
         var compatibleMatches = modelAnalysis.Matches.Where(match => match.Strength == DriverPackageMatchStrength.CompatibleIdOnly).ToArray();
         var provider = document.GetValue("Version", "Provider");
@@ -316,7 +322,7 @@ public sealed class LocalDriverPackageAnalyzer
         DriverPackageAnalysisOutcome outcome;
         if (infSignature.Status == DriverPackageVerificationStatus.Invalid || invalidPayloadMembership)
             outcome = DriverPackageAnalysisOutcome.Incompatible;
-        else if (modelAnalysis.Unsupported || reasons.Count > 0 && HasAnalysisBlockingReason(reasons))
+        else if (modelAnalysis.Unsupported || dependencyAnalysis.Unsupported || reasons.Count > 0 && HasAnalysisBlockingReason(reasons))
             outcome = DriverPackageAnalysisOutcome.Incomplete;
         else if (modelAnalysis.OsOrArchitectureMismatch)
             outcome = DriverPackageAnalysisOutcome.Incompatible;
@@ -331,7 +337,7 @@ public sealed class LocalDriverPackageAnalyzer
                 reasons.Add("O mesmo INF corresponde por Hardware ID a mais de um dispositivo local; selecione/revise o alvo antes de qualquer operação.");
         }
         else if (catalogPath is null || infSignature.Status == DriverPackageVerificationStatus.Unavailable ||
-                 requiredFiles.Count == 0 || requiredPaths.Count != requiredFiles.Count)
+                 dependencyAnalysis.Files.Count == 0 || requiredPaths.Count != dependencyAnalysis.Files.Count)
             outcome = DriverPackageAnalysisOutcome.Incomplete;
         else if (infSignature.Status == DriverPackageVerificationStatus.Unavailable || unavailablePayloadMembership)
             outcome = DriverPackageAnalysisOutcome.Incomplete;
@@ -342,7 +348,7 @@ public sealed class LocalDriverPackageAnalyzer
 
         if (string.IsNullOrWhiteSpace(catalog))
             reasons.Add("O INF não declara um catálogo verificável para a arquitetura atual.");
-        if (requiredFiles.Count == 0)
+        if (dependencyAnalysis.Files.Count == 0 && modelAnalysis.Matches.Count > 0)
             reasons.Add("O INF não contém uma seção SourceDisksFiles aplicável; os arquivos de payload necessários não podem ser enumerados com segurança.");
         if (modelAnalysis.Matches.Count == 0 && !modelAnalysis.OsOrArchitectureMismatch && !modelAnalysis.Unsupported)
             reasons.Add("Nenhum Hardware ID ou Compatible ID conhecido deste INF coincide com o inventário Plug and Play local.");
@@ -354,7 +360,8 @@ public sealed class LocalDriverPackageAnalyzer
             Array.AsReadOnly(requiredPaths.Select(file => Path.GetFileName(file)!).ToArray()),
             Array.AsReadOnly(reasons.Distinct(StringComparer.Ordinal).ToArray()),
             InfSha256: payloadHashes.GetValueOrDefault(Path.GetRelativePath(packageRoot, infPath)),
-            PayloadFilesSha256: new Dictionary<string, string>(payloadHashes, StringComparer.OrdinalIgnoreCase));
+            PayloadFilesSha256: new Dictionary<string, string>(payloadHashes, StringComparer.OrdinalIgnoreCase),
+            DependencyResolutionSummary: dependencyAnalysis.Detail);
     }
 
     private static bool HasAnalysisBlockingReason(IEnumerable<string> reasons) => reasons.Any(reason =>
@@ -538,12 +545,13 @@ public sealed class LocalDriverPackageAnalyzer
         }
     }
 
-    private sealed record InfModel(string Architecture, int? Build, int? ProductType, bool Applicable, IReadOnlyList<string> Ids);
+    private sealed record InfModel(string Architecture, int? Build, int? ProductType, bool Applicable, string? InstallSection, IReadOnlyList<string> Ids);
     private sealed record ModelMatchAnalysis(
         IReadOnlyList<DriverPackageDeviceMatch> Matches,
         IReadOnlyList<string> Reasons,
         bool Unsupported,
         bool OsOrArchitectureMismatch);
+    private sealed record PackageDependencyAnalysis(IReadOnlyList<string> Files, string? Reason, string Detail, bool Unsupported);
 
     private sealed class InfDocument
     {
@@ -649,36 +657,140 @@ public sealed class LocalDriverPackageAnalyzer
             return value;
         }
 
-        public IReadOnlyList<string> GetRequiredPackageFiles(string? architecture, out string? reason)
+        public PackageDependencyAnalysis GetRequiredPackageFiles(
+            string? architecture,
+            IReadOnlyList<DriverPackageDeviceMatch> matches,
+            IDriverPackageSystemInfDependencyResolver systemInfResolver)
         {
-            reason = null;
-            var sections = _sections.Where(pair => pair.Key.Equals("SourceDisksFiles", StringComparison.OrdinalIgnoreCase) ||
-                pair.Key.StartsWith("SourceDisksFiles.", StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (sections.Length == 0)
+            if (matches.Count == 0)
+                return new(Array.Empty<string>(), null, "Nenhum dispositivo corresponde; dependências de instalação não foram avaliadas.", false);
+            if (architecture is null)
+                return new(Array.Empty<string>(), "A arquitetura não foi identificada; não é possível selecionar SourceDisksFiles.", "Dependências incompletas.", true);
+
+            var errors = new List<string>();
+            var unsupported = false;
+            var copyFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var needs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var installSections = matches.SelectMany(match => match.ApplicableInstallSections ?? Array.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (matches.Any(match => match.ApplicableInstallSections is not { Count: 1 }))
             {
-                reason = "Não há seção SourceDisksFiles; a lista de arquivos necessários não pôde ser enumerada.";
-                return Array.Empty<string>();
+                errors.Add("A seção DDInstall aplicável ao Hardware ID não foi resolvida de forma única.");
+                unsupported = true;
             }
 
-            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (sectionName, lines) in sections)
+            var fileListSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var installSection in installSections)
             {
-                if (sectionName.Contains(".nt", StringComparison.OrdinalIgnoreCase) && architecture is not null &&
-                    !sectionName.Contains($".nt{architecture}", StringComparison.OrdinalIgnoreCase)) continue;
-                foreach (var line in lines)
+                var applicableSections = new[] { "", ".Services", ".HW", ".CoInstallers", ".Interfaces", ".Software", ".Wdf" }
+                    .Select(suffix => installSection + suffix)
+                    .Where(_sections.ContainsKey)
+                    .ToArray();
+                foreach (var sectionName in applicableSections)
                 {
-                    var pair = ParseKeyValue(line);
-                    if (pair is null) { reason ??= "Uma linha de SourceDisksFiles não está no formato chave=valor."; continue; }
-                    var name = Unquote(pair.Value.Key.Trim());
-                    if (string.IsNullOrWhiteSpace(name) || name.Contains('%'))
+                    foreach (var line in _sections[sectionName])
                     {
-                        reason ??= "SourceDisksFiles contém um nome parametrizado não resolvido.";
-                        continue;
+                        var pair = ParseKeyValue(line);
+                        if (pair is null) continue;
+                        var key = pair.Value.Key.Trim();
+                        var values = SplitCsv(pair.Value.Value).Select(Unquote).Select(value => value.Trim()).ToArray();
+                        if (key.Equals("CopyFiles", StringComparison.OrdinalIgnoreCase))
+                        {
+                            foreach (var value in values.Where(value => value.Length > 0))
+                            {
+                                if (value.StartsWith('@'))
+                                    copyFileNames.Add(value[1..]);
+                                else if (_sections.TryGetValue(value, out var fileLines))
+                                {
+                                    fileListSections.Add(value);
+                                    foreach (var fileLine in fileLines)
+                                    {
+                                        var fields = SplitCsv(fileLine).Select(Unquote).Select(item => item.Trim()).ToArray();
+                                        var sourceName = fields.Length > 1 && fields[1].Length > 0 ? fields[1] : fields[0];
+                                        if (sourceName.Length == 0 || sourceName.Contains('%'))
+                                        {
+                                            errors.Add($"A lista de CopyFiles [{value}] contém nome de arquivo parametrizado ou vazio.");
+                                            unsupported = true;
+                                            continue;
+                                        }
+                                        copyFileNames.Add(sourceName);
+                                    }
+                                }
+                                else
+                                {
+                                    errors.Add($"A diretiva CopyFiles referencia uma seção ausente ou não resolvida: {value}.");
+                                    unsupported = true;
+                                }
+                            }
+                        }
+                        else if (key.Equals("Include", StringComparison.OrdinalIgnoreCase))
+                            foreach (var value in values.Where(value => value.Length > 0)) includes.Add(value);
+                        else if (key.Equals("Needs", StringComparison.OrdinalIgnoreCase))
+                            foreach (var value in values.Where(value => value.Length > 0)) needs.Add(value);
                     }
-                    result.Add(name);
                 }
             }
-            return Array.AsReadOnly(result.ToArray());
+
+            if (needs.Count > 0 && includes.Count == 0)
+            {
+                errors.Add("Há Needs sem Include correspondente nas seções de instalação aplicáveis; a dependência não pôde ser resolvida.");
+                unsupported = true;
+            }
+            DriverPackageSystemDependencyResult? systemResolution = null;
+            if (includes.Count > 0)
+            {
+                systemResolution = systemInfResolver.Verify(
+                    Array.AsReadOnly(includes.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()),
+                    Array.AsReadOnly(needs.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()));
+                if (systemResolution.Status != DriverPackageDependencyStatus.Available)
+                {
+                    errors.Add($"Dependência de INF do Windows não confirmada ({systemResolution.Status}): {systemResolution.Detail}");
+                    unsupported = true;
+                }
+            }
+
+            var sourceDescription = includes.Count == 0
+                ? "Nenhuma dependência Include/Needs do Windows foi declarada nas seções selecionadas."
+                : $"Include: {string.Join(", ", includes)}; Needs: {string.Join(", ", needs)}. {systemResolution?.Detail ?? "Dependência não verificada."}";
+
+            if (copyFileNames.Count == 0)
+                return new(Array.Empty<string>(), errors.Count == 0 ? "As seções aplicáveis não declaram CopyFiles; o conjunto de arquivos do pacote não pôde ser validado por este fluxo." : string.Join(" ", errors), sourceDescription, true);
+
+            var architectureSection = "SourceDisksFiles." + architecture;
+            var sourceSectionName = _sections.ContainsKey(architectureSection) ? architectureSection : "SourceDisksFiles";
+            if (!_sections.TryGetValue(sourceSectionName, out var sourceLines))
+            {
+                errors.Add($"A seção [{sourceSectionName}] necessária para CopyFiles não existe.");
+                return new(Array.Empty<string>(), string.Join(" ", errors), sourceDescription, true);
+            }
+
+            var sourceFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in sourceLines)
+            {
+                var pair = ParseKeyValue(line);
+                if (pair is null) { errors.Add($"Uma linha de [{sourceSectionName}] não pôde ser interpretada."); unsupported = true; continue; }
+                sourceFiles.Add(Unquote(pair.Value.Key.Trim()));
+            }
+            foreach (var file in copyFileNames)
+            {
+                if (Path.IsPathRooted(file) || file.Contains(':') || file.Split(['/', '\\']).Any(part => part is ".." or ".") || file.Contains('%'))
+                {
+                    errors.Add("Uma diretiva CopyFiles contém um caminho fora do pacote ou parametrizado.");
+                    unsupported = true;
+                    continue;
+                }
+                if (!sourceFiles.Contains(Path.GetFileName(file)))
+                {
+                    errors.Add($"O arquivo {Path.GetFileName(file)} é copiado por DDInstall, mas não tem entrada em [{sourceSectionName}].");
+                    unsupported = true;
+                    continue;
+                }
+            }
+            var detail = $"DDInstall aplicável: {string.Join(", ", installSections)}. Listas CopyFiles selecionadas: {string.Join(", ", fileListSections)}. Payload alcançável: {string.Join(", ", copyFileNames)}. {sourceDescription}";
+            return new(Array.AsReadOnly(copyFileNames.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()),
+                errors.Count == 0 ? null : string.Join(" ", errors), detail, unsupported);
         }
 
         public ModelMatchAnalysis FindDeviceMatches(
@@ -747,11 +859,15 @@ public sealed class LocalDriverPackageAnalyzer
                         if (modelPair is null) { unsupported = true; continue; }
                         var modelFields = SplitCsv(modelPair.Value.Value);
                         if (modelFields.Count < 2) { unsupported = true; continue; }
-                        foreach (var rawId in modelFields.Skip(1))
+                        var installBase = Unquote(modelFields[0].Trim());
+                        if (installBase.Length == 0 || installBase.Contains('%')) { unsupported = true; continue; }
+                        var selectedInstall = ResolveInstallSection(installBase, platform, architecture, out var installReason);
+                        if (selectedInstall is null && installReason is not null) reasons.Add(installReason);
+                        foreach (var rawId in modelFields.Skip(1).Where(value => value.Length > 0))
                         {
                             var id = Unquote(rawId.Trim());
                             if (id.Length == 0 || id.Contains('%')) { unsupported = true; continue; }
-                            models.Add(new(architecture, decorated.Build, decorated.ProductType, decorated.Applicable, [id]));
+                            models.Add(new(architecture, decorated.Build, decorated.ProductType, decorated.Applicable, selectedInstall, [id]));
                         }
                     }
                 }
@@ -764,20 +880,67 @@ public sealed class LocalDriverPackageAnalyzer
                 var compatibleIds = device.CompatibleIds ?? Array.Empty<string>();
                 var ids = models.SelectMany(model => model.Ids).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 var exactId = hwIds.FirstOrDefault(id => ids.Contains(id, StringComparer.OrdinalIgnoreCase));
-                if (exactId is not null)
-                {
-                    matches.Add(new(device, DriverPackageMatchStrength.ExactHardwareId, exactId));
-                    continue;
-                }
                 var compatibleId = compatibleIds.FirstOrDefault(id => ids.Contains(id, StringComparer.OrdinalIgnoreCase));
-                if (compatibleId is not null)
-                    matches.Add(new(device, DriverPackageMatchStrength.CompatibleIdOnly, compatibleId));
+                var matchedId = exactId ?? compatibleId;
+                if (matchedId is null) continue;
+                var matchedModels = models.Where(model => model.Ids.Contains(matchedId, StringComparer.OrdinalIgnoreCase)).ToArray();
+                var installSections = matchedModels.Where(model => model.InstallSection is not null)
+                    .Select(model => model.InstallSection!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                if (matchedModels.Any(model => model.InstallSection is null))
+                {
+                    reasons.Add("A seção DDInstall referenciada pela linha Models aplicável não existe ou não pôde ser selecionada.");
+                    unsupported = true;
+                }
+                if (installSections.Length > 1)
+                {
+                    reasons.Add("O Hardware/Compatible ID seleciona mais de uma seção DDInstall; a escolha ficou ambígua.");
+                    unsupported = true;
+                }
+                matches.Add(new(device,
+                    exactId is not null ? DriverPackageMatchStrength.ExactHardwareId : DriverPackageMatchStrength.CompatibleIdOnly,
+                    matchedId,
+                    Array.AsReadOnly(installSections)));
             }
 
             var osMismatch = sawMatchingArchitecture && !sawApplicableOs;
             if (!sawMatchingArchitecture) reasons.Add("Nenhuma decoração Models declara a arquitetura atual.");
             else if (osMismatch) reasons.Add("As decorações Models x86/x64/ARM não incluem a versão ou build atual do Windows.");
             return new(Array.AsReadOnly(matches.ToArray()), Array.AsReadOnly(reasons.Distinct().ToArray()), unsupported, osMismatch);
+        }
+
+        private string? ResolveInstallSection(string baseName, DriverPackageTargetPlatform platform, string architecture, out string? reason)
+        {
+            reason = null;
+            var candidates = new List<(string Name, int Rank)>();
+            if (_sections.ContainsKey(baseName)) candidates.Add((baseName, 0));
+            foreach (var sectionName in _sections.Keys)
+            {
+                if (!sectionName.StartsWith(baseName + ".", StringComparison.OrdinalIgnoreCase)) continue;
+                var suffix = sectionName[(baseName.Length + 1)..];
+                if (suffix.Equals("NT", StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates.Add((sectionName, 100));
+                    continue;
+                }
+                var target = ParseTargetDecoration(suffix, platform);
+                if (!target.Valid || !target.Applicable || !string.Equals(target.Architecture, architecture, StringComparison.OrdinalIgnoreCase)) continue;
+                var rank = 200 + (suffix.Contains('.', StringComparison.Ordinal) ? 10 : 0) +
+                    (target.Build.HasValue ? 100 : 0) + (suffix.StartsWith("NT" + architecture + ".", StringComparison.OrdinalIgnoreCase) ? 20 : 0);
+                candidates.Add((sectionName, rank));
+            }
+            if (candidates.Count == 0)
+            {
+                reason = $"A seção DDInstall [{baseName}] e suas variantes aplicáveis para Windows/{architecture} não foram encontradas.";
+                return null;
+            }
+            var highestRank = candidates.Max(candidate => candidate.Rank);
+            var selected = candidates.Where(candidate => candidate.Rank == highestRank).ToArray();
+            if (selected.Length != 1)
+            {
+                reason = $"Mais de uma variante DDInstall com a mesma especificidade se aplica a [{baseName}].";
+                return null;
+            }
+            return selected[0].Name;
         }
 
         private static (bool Valid, string? Architecture, int? Build, int? ProductType, bool Applicable, string Reason) ParseTargetDecoration(
