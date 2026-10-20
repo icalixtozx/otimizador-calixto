@@ -132,6 +132,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("registry interruption is persisted without automatic rollback", RegistryInterruptionRemainsManual),
     ("registry missing parent key is never created", RegistryMissingParentIsNotCreated),
     ("post-format catalog uses only reviewed exact WinGet IDs and dated manifests", () => RunSync(ProgramCatalogIsBoundedAndDated)),
+    ("WinGet source registration status is clear and does not imply install readiness", () => RunSync(ProgramSourceStatusIsConservative)),
     ("installed program detection requires exact name and publisher and preserves uncertainty", () => RunSync(ProgramInstalledDetectionIsConservative)),
     ("WinGet command factory rejects unknown packages and emits only fixed reviewed arguments", () => RunSync(ProgramCommandFactoryIsBounded)),
     ("program install execution is blocked by the production policy without starting WinGet", ProgramProductionPolicyBlocksRunner),
@@ -2851,6 +2852,34 @@ static void ProgramCatalogIsBoundedAndDated()
         catalog.Packages[0], catalog.Packages[0] with { DisplayName = "Duplicate" }]));
     AssertThrows<ArgumentException>(() => new ProgramCatalog([
         catalog.Packages[0] with { SourceName = "arbitrary-source" }]));
+}
+
+static void ProgramSourceStatusIsConservative()
+{
+    var missing = WinGetSourcePackageStatus.ToUserMessage(
+        new WinGetSourcePackageStatus(WinGetSourcePackageRegistration.NotRegistered));
+    Assert(missing.Contains("indisponível neste perfil", StringComparison.OrdinalIgnoreCase)
+        && missing.Contains("recuperação", StringComparison.OrdinalIgnoreCase)
+        && missing.Contains("Inventário local, navegação e demais páginas", StringComparison.Ordinal),
+        "an absent source package must explain the profile-local outage and preserve unrelated app capabilities");
+
+    var registered = WinGetSourcePackageStatus.ToUserMessage(
+        new WinGetSourcePackageStatus(WinGetSourcePackageRegistration.RegisteredHealthy, "Ok"));
+    Assert(registered.Contains("não confirma atualização", StringComparison.OrdinalIgnoreCase)
+        && registered.Contains("bloqueada", StringComparison.OrdinalIgnoreCase),
+        "AppX registration must not be represented as a functioning/current WinGet catalog");
+
+    var unhealthy = WinGetSourcePackageStatus.ToUserMessage(
+        new WinGetSourcePackageStatus(WinGetSourcePackageRegistration.RegisteredUnhealthy, "NeedsRemediation"));
+    Assert(unhealthy.Contains("NeedsRemediation", StringComparison.Ordinal)
+        && unhealthy.Contains("não foi validada", StringComparison.OrdinalIgnoreCase),
+        "an unhealthy package status must be surfaced without declaring source availability");
+
+    var unknown = WinGetSourcePackageStatus.ToUserMessage(
+        new WinGetSourcePackageStatus(WinGetSourcePackageRegistration.Unknown, Diagnostic: "consulta AppX falhou"));
+    Assert(unknown.Contains("não foi possível confirmar", StringComparison.OrdinalIgnoreCase)
+        && unknown.Contains("inventário local permanece disponível", StringComparison.OrdinalIgnoreCase),
+        "a failed status check must remain unknown and must not disable local inventory");
 }
 
 static void ProgramInstalledDetectionIsConservative()

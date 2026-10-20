@@ -72,7 +72,8 @@ public sealed class MainWindowViewModel : ObservableObject
             new ProgramInstallService(
                 programCatalog,
                 new WindowsWinGetInstallRunner(),
-                new BlockedProgramInstallExecutionPolicy("Instalações reais de programas estão bloqueadas nesta etapa; nenhum processo winget será iniciado.")));
+                new BlockedProgramInstallExecutionPolicy("Instalações reais de programas estão bloqueadas nesta etapa; nenhum processo winget será iniciado.")),
+            new WindowsWinGetSourcePackageStatusProvider());
         _currentPage = Overview;
         NavigationItems =
         [
@@ -146,6 +147,7 @@ public sealed class MainWindowViewModel : ObservableObject
             PageTitle = "Programas pós-formatação";
             CurrentPage = Programs;
             UpdateSelectedNavigation(key);
+            _ = Programs.LoadWinGetSourceStatusAsync();
         }
         else if (key is "profiles" or "history")
         {

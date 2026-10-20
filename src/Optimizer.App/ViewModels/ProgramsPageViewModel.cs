@@ -72,18 +72,23 @@ public sealed class ProgramsPageViewModel : ObservableObject
 {
     private readonly IInstalledProgramInventoryProvider _inventoryProvider;
     private readonly ProgramInstallService _installService;
+    private readonly IWinGetSourcePackageStatusProvider _winGetSourceStatusProvider;
     private bool _isLoading;
     private bool _isCheckingBlock;
+    private bool _isCheckingWinGetSource;
     private string _statusMessage = "Selecione programas e revise a operação. Nenhuma instalação será iniciada nesta etapa.";
+    private string _winGetSourceStatusMessage = "Estado da origem WinGet ainda não consultado neste perfil.";
     private string? _inventoryWarning;
 
     public ProgramsPageViewModel(
         ProgramCatalog catalog,
         IInstalledProgramInventoryProvider inventoryProvider,
-        ProgramInstallService installService)
+        ProgramInstallService installService,
+        IWinGetSourcePackageStatusProvider winGetSourceStatusProvider)
     {
         _inventoryProvider = inventoryProvider;
         _installService = installService;
+        _winGetSourceStatusProvider = winGetSourceStatusProvider;
         Packages = new ObservableCollection<ProgramCatalogRowViewModel>(catalog.Packages.Select(package =>
             new ProgramCatalogRowViewModel(package, SelectionChanged)));
         Reviews = [];
@@ -100,6 +105,7 @@ public sealed class ProgramsPageViewModel : ObservableObject
     public bool IsLoading { get => _isLoading; private set { if (SetProperty(ref _isLoading, value)) RefreshInstalledCommand.NotifyCanExecuteChanged(); } }
     public bool IsCheckingBlock { get => _isCheckingBlock; private set { if (SetProperty(ref _isCheckingBlock, value)) CheckBlockedStatusCommand.NotifyCanExecuteChanged(); } }
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
+    public string WinGetSourceStatusMessage { get => _winGetSourceStatusMessage; private set => SetProperty(ref _winGetSourceStatusMessage, value); }
     public string? InventoryWarning { get => _inventoryWarning; private set { if (SetProperty(ref _inventoryWarning, value)) OnPropertyChanged(nameof(HasInventoryWarning)); } }
     public bool HasInventoryWarning => !string.IsNullOrWhiteSpace(InventoryWarning);
     public int SelectedCount => Packages.Count(package => package.IsSelected);
@@ -109,6 +115,27 @@ public sealed class ProgramsPageViewModel : ObservableObject
     public bool HasReviews => Reviews.Count > 0;
     public bool HasResults => Results.Count > 0;
     public bool HasNoResults => !HasResults;
+
+    public async Task LoadWinGetSourceStatusAsync()
+    {
+        if (_isCheckingWinGetSource) return;
+        _isCheckingWinGetSource = true;
+        WinGetSourceStatusMessage = "Consultando somente o registro AppX da origem WinGet neste perfil…";
+        try
+        {
+            var status = await _winGetSourceStatusProvider.ReadCurrentProfileStatusAsync();
+            WinGetSourceStatusMessage = WinGetSourcePackageStatus.ToUserMessage(status);
+        }
+        catch (Exception exception)
+        {
+            WinGetSourceStatusMessage = WinGetSourcePackageStatus.ToUserMessage(
+                new WinGetSourcePackageStatus(WinGetSourcePackageRegistration.Unknown, Diagnostic: exception.GetType().Name));
+        }
+        finally
+        {
+            _isCheckingWinGetSource = false;
+        }
+    }
 
     public async Task RefreshInstalledAsync()
     {
