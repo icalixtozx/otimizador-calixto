@@ -442,3 +442,11 @@ Nenhum staging, associação, instalação, remoção ou reinício foi executado
 - Consulta real local pelo harness `Optimizer.Core.Tests.dll --registry-management-readonly` (somente leitura): `NetGetJoinInformation` informou não ingressado em domínio; `NetGetAadJoinInformation` retornou `S_FALSE` sem ponteiro, tratado como consulta bem-sucedida sem ingresso/conta padrão Entra no escopo; `IsDeviceRegisteredWithManagement` informou não registrado por essa API; as queries WMI `RSOP_RegistryPolicySetting` em `root\RSOP\User` e `root\RSOP\Computer` foram negadas. Estado agregado para `HideFileExt`: `Unknown`. Nenhuma chave, política ou componente foi alterado.
 - O resultado real é limitado a este perfil e aos escopos das APIs; ausência de domínio/Entra/registro MDM não prova ausência de gestão por GPP, política MDM específica, script ou agente. RSoP inacessível significa política desconhecida, não “não gerenciado”. Os detalhes oficiais e URLs estão em `docs/PROGRESS.md`, seção 38.
 - Não foi feita inspeção visual e a divergência de identidade do processo permanece; checklist da seção 37 continua pendente. A validação das chamadas locais não prova a apresentação visual.
+
+## Ciclo real autorizado do modo de energia AC — 2026-10-20
+
+- Antes da captura, o adaptador nativo foi consultado novamente: AC e DC=`Equilibrado`; plano ativo igual ao aprovado, confirmado também por `powercfg /getactivescheme`.
+- O serviço existente persistiu uma captura real em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealPowerMode`, com alvo apenas em AC. A entrada foi recarregada do armazenamento antes da aplicação.
+- A chamada real para `PowerSetUserConfiguredACPowerMode` foi verificada pelo getter: AC=`Melhor desempenho`; DC permaneceu `Equilibrado` e o GUID do plano permaneceu igual.
+- A restauração condicional usou a captura e só ocorreu após a checagem do estado atual. O serviço informou `Reverted`; leitura final confirmou AC/DC=`Equilibrado` e o mesmo plano ativo. O diário persistido também terminou em `Reverted`.
+- Os `127/127` checks são simulados. A execução real acima valida este PC e este build do Windows; não valida modo efetivo, desempenho, UI visual ou compatibilidade em outro PC.

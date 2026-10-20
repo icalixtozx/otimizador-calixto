@@ -1039,3 +1039,14 @@ A interface apresenta, após a leitura solicitada, categoria, estado, fonte, alc
 ### Capacidade entregue e pendências
 
 Entregue: inventário independente e somente leitura destas quatro fontes de contexto/gestão e evidência de Política de Grupo ligada exatamente ao valor revisado, integrada à prévia da página Registro. Permanece parcial o módulo Registro/Políticas: não há identificação geral de GPP, políticas MDM por configuração, scripts/agentes; não há motor geral de políticas nem operações de política; `HideFileExt` real permanece bloqueado e seu comportamento/compatibilidade operacional não foram validados; escrita/restauração real não foram validadas. A consulta RSoP deste PC sofreu acesso negado, portanto a evidência direta de política não pôde ser obtida nesta execução. A inspeção visual manual também segue pendente.
+
+## 39. Ciclo real autorizado do modo de energia AC — 2026-10-20
+
+Continuação do commit `003e37155afae127b9c60642e06446402e0e891d`. O usuário autorizou somente o ciclo `AC Equilibrado → Melhor desempenho → restauração condicional para Equilibrado`, preservando DC e o plano ativo. Nenhum outro ajuste foi executado.
+
+- Leituras reais novas às `2026-10-20T21:15:02Z` e imediatamente antes da captura às `2026-10-20T21:15:33Z`: AC=`Equilibrado`, DC=`Equilibrado`; o plano ativo coincidia com o GUID aprovado e foi confirmado por `powercfg /getactivescheme`. A API PowrProf estava disponível e não retornou erros.
+- A captura esquema 2 foi persistida em `%LOCALAPPDATA%\CalixtoOptimizer\History\RealPowerMode`, incluindo AC/DC anteriores, alvo apenas para AC e GUID do plano. O serviço recarregou o registro persistido antes da operação.
+- Aplicação real via serviço existente: estado `Verified`; leitura posterior mostrou AC=`Melhor desempenho`, DC=`Equilibrado` e GUID do plano inalterado.
+- Restauração condicional real: estado `Reverted`; a leitura final confirmou AC=`Equilibrado`, DC=`Equilibrado` e o mesmo GUID do plano. Uma leitura separada confirmou que o registro persistido terminou no estado `Reverted`.
+- A execução foi feita no contexto atual, sem solicitar elevação. Não houve mudança de plano, setter DC, reinício, instalação de ferramenta ou chamada a outro módulo. Nenhum ganho de desempenho foi medido; o getter confirma somente a preferência configurada, não o modo efetivo.
+- Harness Release executado com SDK `10.0.402`: `127/127` checks simulados aprovados. Não houve mudança de código nem build completo nesta etapa. O ciclo real não substitui testes de UI, de outro equipamento ou de outros builds do Windows.
