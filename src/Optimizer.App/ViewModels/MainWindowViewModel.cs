@@ -7,6 +7,7 @@ using Optimizer.Core.Consent;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Recovery;
 using Optimizer.Core.Registry;
+using Optimizer.Core.Programs;
 using Optimizer.Windows;
 
 namespace Optimizer.App.ViewModels;
@@ -64,11 +65,20 @@ public sealed class MainWindowViewModel : ObservableObject
             sharedJournalStore,
             processConsent,
             processJournal));
+        var programCatalog = ProgramCatalog.CreateDefault();
+        Programs = new ProgramsPageViewModel(
+            programCatalog,
+            new WindowsInstalledProgramInventoryProvider(),
+            new ProgramInstallService(
+                programCatalog,
+                new WindowsWinGetInstallRunner(),
+                new BlockedProgramInstallExecutionPolicy("Instalações reais de programas estão bloqueadas nesta etapa; nenhum processo winget será iniciado.")));
         _currentPage = Overview;
         NavigationItems =
         [
             new("overview", "Visão geral", "◧", true, null, true),
             new("drivers", "Drivers", "▦", true, null),
+            new("programs", "Programas", "□", true, null),
             new("profiles", "Planos", "◉", true, null),
             new("tweaks", "Ajustes", "⌁", false, "Depois"),
             new("games", "Jogos", "◇", false, "Depois"),
@@ -88,6 +98,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public NetworkPageViewModel Network { get; }
     public ProcessesPageViewModel Processes { get; }
     public RegistryPageViewModel Registry { get; }
+    public ProgramsPageViewModel Programs { get; }
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public RelayCommand<string> NavigateCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
@@ -127,6 +138,13 @@ public sealed class MainWindowViewModel : ObservableObject
             SelectedNavigationKey = key;
             PageTitle = "Drivers";
             CurrentPage = Drivers;
+            UpdateSelectedNavigation(key);
+        }
+        else if (key is "programs")
+        {
+            SelectedNavigationKey = key;
+            PageTitle = "Programas pós-formatação";
+            CurrentPage = Programs;
             UpdateSelectedNavigation(key);
         }
         else if (key is "profiles" or "history")

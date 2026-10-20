@@ -1,6 +1,6 @@
 # Instalação assistida de drivers — investigação e proposta
 
-> **Estado vigente — atualização de 20/10/2026:** a associação agora está preparada com `DiInstallDevice` para um `SP_DEVINFO_DATA` e um `SP_DRVINFO_DATA` selecionados; a análise resolve recursivamente `Include`/`Needs` dos INF de sistema com limites e detecção de ciclos. Staging/associação continuam bloqueados em produção e não foram executados. As notas históricas abaixo que descrevem apenas Needs direto ou PnPUtil como backend foram superadas pela seção **Associação direcionada e dependências recursivas — 2026-10-20** no final deste arquivo.
+> **Estado vigente — atualização de 20/10/2026: implementação parcial.** O código de `DiInstallDevice`, staging e resolução recursiva de `Include`/`Needs` está presente; as APIs nativas de staging/associação e o caminho de recuperação ainda não foram validados por execução real. A política de mutação continua bloqueada; nenhuma instalação, remoção ou associação foi realizada. Build e testes simulados não comprovam operação/recuperação no Windows. A inspeção visual permanece no checklist manual porque a ferramenta identificou outro executável; não contorne essa verificação. As notas históricas abaixo que descrevem apenas Needs direto ou PnPUtil como backend foram superadas pela seção **Associação direcionada e dependências recursivas — 2026-10-20** no final deste arquivo.
 
 ## Estado atual — pacotes candidatos revisados em 20/10/2026
 

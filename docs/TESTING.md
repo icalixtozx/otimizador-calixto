@@ -19,6 +19,36 @@ Ainda é necessário compilar e executar no Windows com o SDK .NET 10, confirmar
 
 Este conjunto não testa compatibilidade de drivers, benchmarks de jogos ou ajustes de sistema: tais funcionalidades não fazem parte da primeira fatia.
 
+## Programas pós-formatação e status vigente — 2026-10-20
+
+### Verificações simuladas
+
+- Com SDK `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` 10.0.402:
+  `dotnet build .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-restore`
+- Execução direta do harness: `dotnet .\tests\Optimizer.Core.Tests\bin\Release\net10.0\Optimizer.Core.Tests.dll` — **121/121 checks simulados aprovados** após corrigir um assert que dependia de capitalização.
+- Os checks de programas usam `IProgramInstallRunner` falso; cobrem IDs fixos, origem e consentimento por pacote, WinGet ausente, ID não encontrado, código de falta de conectividade, falha parcial, cancelamento, interrupção do restante da seleção, reinício pendente e bloqueio da política de produção sem chamada ao runner.
+- Os checks não executam `winget.exe`, não instalam aplicativos, não chamam o leitor real de Registro e não validam UAC, MSI/EXE, download, reinício ou remoção.
+
+### Verificação de pacote/origem, separada dos testes
+
+Os manifests exatos de `7zip.7zip` 26.04 e `VideoLAN.VLC` 3.0.24 foram lidos diretamente de `microsoft/winget-pkgs` em 2026-10-20. As versões são snapshots do manifesto. Os hashes x64 registrados ali não foram recalculados porque os instaladores não foram baixados. WinGet local já reportou `v1.29.380`; `winget show` falhou ao atualizar a origem com HTTP 404 (`0x80190194`). O metadata atual da origem permanece indisponível nesta tentativa; nenhuma fonte foi adicionada/resetada nem WinGet instalado.
+
+### Build concluído e inspeção ainda pendente
+
+- Após o usuário confirmar que fechou a janela, o build normal Release da solução foi executado com `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` (10.0.402): `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore` — **sucesso, 0 avisos e 0 erros**, incluindo WPF/apphost; não foi usado `UseAppHost=false` nem encerrado processo. O harness foi repetido depois do build: **121/121 checks simulados aprovados**.
+- O build não equivale a executar o executável final. A compilação atual não foi aberta nem inspecionada visualmente; o checklist manual abaixo continua pendente. O CUA identificou anteriormente uma instalação Preview diferente do PID/caminho do executável Release, por isso a checagem não foi contornada.
+
+### Checklist visual manual consolidado
+
+- [ ] Programas: navegar para Programas pós-formatação; ler entradas instaladas; confirmar que as caixas permitem seleção múltipla e que “Não identificado localmente” não diz “não instalado”.
+- [ ] Programas: selecionar 7-Zip e VLC; revisar para cada um ID/origem, versão snapshot, ação, escopo declarado, licença/acordos pendentes, UAC, reinício e observação de metadata datado.
+- [ ] Programas: acionar apenas “Verificar bloqueio por pacote”; conferir resultado BLOQUEADA por item e nenhuma instalação iniciada.
+- [ ] Drivers: candidatos/análise/prévia e bloqueio; não clicar em staging ou associação.
+- [ ] Processos, Registro, Rede e Energia: seguir o checklist manual consolidado registrado acima; não encerrar processo, iniciar sondagem ou chamar setter.
+- [ ] Histórico: distinguir seleção/revisão/captura de instalação efetivamente confirmada.
+
+Instalação limpa, atualização real do catálogo por WinGet, instalação de pacote, UAC, falha e cancelamento durante instalador, reinício pendente, desinstalação, execução/recuperação real de driver, instalação limpa/desinstalação do Preview atual e teste em outro PC continuam pendentes.
+
 ## Estado da validação 0.6.0 (2026-10-19)
 
 A seção “Validação pendente” acima descreve o estado inicial e foi superada pelos registros posteriores em docs/PROGRESS.md. As consultas WMI/PowrProf reais, a captura real AC/DC/plano e a reabertura em outro processo estão descritas lá. A execução atual do SDK também está registrada na matriz 0.6: nenhum SDK está instalado neste ambiente, apesar dos builds anteriores documentados.

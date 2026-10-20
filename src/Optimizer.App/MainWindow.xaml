@@ -15,6 +15,9 @@
     <DataTemplate DataType="{x:Type vm:DriversPageViewModel}">
       <views:DriversPage />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ProgramsPageViewModel}">
+      <views:ProgramsPage />
+    </DataTemplate>
     <DataTemplate DataType="{x:Type vm:ProfilesPageViewModel}">
       <views:ProfilesPage />
     </DataTemplate>

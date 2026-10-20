@@ -6,6 +6,7 @@ using Optimizer.Core.Recovery;
 using Optimizer.Core.Network;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Registry;
+using Optimizer.Core.Programs;
 using System.Net;
 using System.IO.Compression;
 
@@ -129,7 +130,19 @@ var tests = new (string Name, Func<Task> Run)[]
     ("registry production policy blocks writes by default", RegistryDefaultPolicyBlocksWrites),
     ("registry journal persistence failure happens before the setter", RegistryJournalFailurePreventsWrite),
     ("registry interruption is persisted without automatic rollback", RegistryInterruptionRemainsManual),
-    ("registry missing parent key is never created", RegistryMissingParentIsNotCreated)
+    ("registry missing parent key is never created", RegistryMissingParentIsNotCreated),
+    ("post-format catalog uses only reviewed exact WinGet IDs and dated manifests", () => RunSync(ProgramCatalogIsBoundedAndDated)),
+    ("installed program detection requires exact name and publisher and preserves uncertainty", () => RunSync(ProgramInstalledDetectionIsConservative)),
+    ("WinGet command factory rejects unknown packages and emits only fixed reviewed arguments", () => RunSync(ProgramCommandFactoryIsBounded)),
+    ("program install execution is blocked by the production policy without starting WinGet", ProgramProductionPolicyBlocksRunner),
+    ("program install requires package-bound consequence and agreement consent", ProgramInstallConsentIsPackageBound),
+    ("missing WinGet manager creates an individual unavailable result for selected packages", ProgramInstallReportsManagerUnavailable),
+    ("WinGet exact package-not-found code is kept distinct", ProgramInstallMapsMissingPackage),
+    ("WinGet no-network result is reported without claiming internet failure", ProgramInstallMapsNetworkUnavailable),
+    ("program installs preserve individual results after a partial package failure", ProgramInstallContinuesAfterPackageFailure),
+    ("cancelled WinGet process records uncertain current state and leaves remainder unrun", ProgramInstallCancellationLeavesUnknownPartialState),
+    ("restart-required WinGet result pauses the remaining package selection", ProgramInstallRestartRequiredPausesRemainder),
+    ("program install request rejects arbitrary package IDs", ProgramInstallRejectsUnknownId)
 };
 
 var failures = 0;
@@ -2823,6 +2836,203 @@ static void CustomUsesOnlyExplicitSelection()
         "custom profile must use only explicit selections");
     Assert(result.SuggestedAdjustmentIds.Count == 0, "custom profile must not add suggestions");
 }
+
+static void ProgramCatalogIsBoundedAndDated()
+{
+    var catalog = ProgramCatalog.CreateDefault();
+    Assert(catalog.Packages.Select(package => package.PackageId).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        .SetEquals(["7zip.7zip", "VideoLAN.VLC"]), "the initial program catalog must contain only the two reviewed exact IDs");
+    Assert(catalog.Packages.All(package => package.SourceName == "winget"
+        && package.ManifestReviewedOn == new DateOnly(2026, 10, 20)
+        && package.ManifestUrl.StartsWith("https://github.com/microsoft/winget-pkgs/", StringComparison.Ordinal)),
+        "each package should cite the dated Microsoft-hosted manifest reviewed for its exact ID");
+    AssertThrows<ArgumentException>(() => new ProgramCatalog([
+        catalog.Packages[0], catalog.Packages[0] with { DisplayName = "Duplicate" }]));
+    AssertThrows<ArgumentException>(() => new ProgramCatalog([
+        catalog.Packages[0] with { SourceName = "arbitrary-source" }]));
+}
+
+static void ProgramInstalledDetectionIsConservative()
+{
+    var package = ProgramCatalog.CreateDefault().Packages.Single(item => item.PackageId == "7zip.7zip");
+    var exact = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([new("7-Zip", "Igor Pavlov", "26.04", "computador")], []));
+    Assert(exact.Status == InstalledProgramStatus.IdentifiedInstalled && exact.Version == "26.04",
+        "exact display name and publisher should identify an uninstall entry");
+    Assert(exact.Reasons.Single().Contains("não comprova origem WinGet", StringComparison.Ordinal),
+        "registry detection must not claim the package was installed by WinGet");
+
+    var partialExact = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([new("7-Zip", "Igor Pavlov", "26.04", "computador")], ["partial read failure"]));
+    Assert(partialExact.Status == InstalledProgramStatus.CheckIncomplete,
+        "a partial inventory read must not turn one match into a unique result");
+
+    var wrongPublisher = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([new("7-Zip", "Someone Else", "26.04", "computador")], []));
+    Assert(wrongPublisher.Status == InstalledProgramStatus.NotIdentified,
+        "a matching name with an unrelated publisher must not be called installed");
+
+    var ambiguous = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([
+            new("7-Zip", "Igor Pavlov", "26.04", "computador"),
+            new("7-Zip", "Igor Pavlov", "25.01", "usuário")], []));
+    Assert(ambiguous.Status == InstalledProgramStatus.Ambiguous,
+        "multiple exact uninstall records must remain ambiguous");
+
+    var incomplete = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([], ["partial read failure"]));
+    Assert(incomplete.Status == InstalledProgramStatus.CheckIncomplete,
+        "partial registry access must not be represented as an absent program");
+}
+
+static void ProgramCommandFactoryIsBounded()
+{
+    var catalog = ProgramCatalog.CreateDefault();
+    var consent = MakeProgramConsent("7zip.7zip");
+    var arguments = ProgramInstallCommandFactory.BuildArguments(catalog, consent);
+    Assert(arguments.SequenceEqual([
+        "install", "--id", "7zip.7zip", "--exact", "--source", "winget", "--interactive",
+        "--accept-source-agreements", "--accept-package-agreements"]),
+        "WinGet call must be built as fixed ArgumentList values for one exact reviewed package");
+    Assert(!arguments.Any(value => value is "--force" or "--silent" or "--scope" or "--override"
+        or "--ignore-security-hash" or "--allow-reboot"),
+        "command must not force, suppress installer UI, force scope, bypass hash checks or request reboot");
+    AssertThrows<InvalidOperationException>(() => ProgramInstallCommandFactory.BuildArguments(catalog,
+        MakeProgramConsent("arbitrary.command")));
+    AssertThrows<InvalidOperationException>(() => ProgramInstallCommandFactory.BuildArguments(catalog,
+        MakeProgramConsent("7zip.7zip") with { PackageAgreementAccepted = false }));
+}
+
+static async Task ProgramProductionPolicyBlocksRunner()
+{
+    var catalog = ProgramCatalog.CreateDefault();
+    var runner = new FakeProgramInstallRunner();
+    var service = new ProgramInstallService(catalog, runner,
+        new BlockedProgramInstallExecutionPolicy("test production default block"));
+    var results = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip")),
+        new ProgramInstallRequest("VideoLAN.VLC", MakeProgramConsent("VideoLAN.VLC"))]);
+    Assert(results.Count == 2 && results.All(result => result.Outcome == ProgramInstallOutcome.ExecutionBlocked),
+        "every selected package should receive an individual production-blocked outcome");
+    Assert(runner.Calls.Count == 0, "blocked production policy must prevent any WinGet runner invocation");
+}
+
+static async Task ProgramInstallConsentIsPackageBound()
+{
+    var catalog = ProgramCatalog.CreateDefault();
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, 0));
+    var service = new ProgramInstallService(catalog, runner, new TestProgramInstallExecutionPolicy(true));
+    var wrongPackage = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("VideoLAN.VLC"))]);
+    var missingAgreement = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip") with { SourceAgreementAccepted = false })]);
+    Assert(wrongPackage.Single().Outcome == ProgramInstallOutcome.ConsentRequired
+        && missingAgreement.Single().Outcome == ProgramInstallOutcome.ConsentRequired,
+        "consent must match package/source and explicitly include both agreements");
+    Assert(runner.Calls.Count == 0, "invalid package-bound consent must never reach WinGet");
+}
+
+static async Task ProgramInstallReportsManagerUnavailable()
+{
+    var catalog = ProgramCatalog.CreateDefault();
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.ManagerUnavailable));
+    var service = new ProgramInstallService(catalog, runner, new TestProgramInstallExecutionPolicy(true));
+    var results = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip")),
+        new ProgramInstallRequest("VideoLAN.VLC", MakeProgramConsent("VideoLAN.VLC"))]);
+    Assert(results.Select(result => result.Outcome).SequenceEqual([
+        ProgramInstallOutcome.ManagerUnavailable, ProgramInstallOutcome.ManagerUnavailable]),
+        "manager absence should be represented per selected package and stop further attempts");
+    Assert(runner.Calls.Count == 1, "no additional process start should be attempted after manager absence");
+}
+
+static async Task ProgramInstallMapsMissingPackage()
+{
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, unchecked((int)0x8A150014)));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var result = await service.ExecuteAsync([new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip"))]);
+    Assert(result.Single().Outcome == ProgramInstallOutcome.PackageNotFound,
+        "documented WinGet no-packages-found HRESULT should not trigger a fallback by localized name");
+}
+
+static async Task ProgramInstallMapsNetworkUnavailable()
+{
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, unchecked((int)0x8A150107)));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var result = await service.ExecuteAsync([new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip"))]);
+    Assert(result.Single().Outcome == ProgramInstallOutcome.NetworkUnavailable
+        && result.Single().Summary.Contains("não foi inferido", StringComparison.OrdinalIgnoreCase),
+        "documented WinGet no-network result should not be generalized to total internet failure");
+}
+
+static async Task ProgramInstallContinuesAfterPackageFailure()
+{
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, unchecked((int)0x8A150108)));
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, 0));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var results = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip")),
+        new ProgramInstallRequest("VideoLAN.VLC", MakeProgramConsent("VideoLAN.VLC"))]);
+    Assert(results.Select(result => result.Outcome).SequenceEqual([
+        ProgramInstallOutcome.Failed, ProgramInstallOutcome.ReportedSuccessUnverified]),
+        "partial success/failure must remain attached to the package that returned it");
+    Assert(runner.Calls.SequenceEqual(["7zip.7zip", "VideoLAN.VLC"]),
+        "each selected package must be invoked independently in order");
+    Assert(results[1].Summary.Contains("não foram verificados", StringComparison.Ordinal),
+        "WinGet success must not be described as post-install verification");
+}
+
+static async Task ProgramInstallCancellationLeavesUnknownPartialState()
+{
+    using var cancellation = new CancellationTokenSource();
+    var runner = new FakeProgramInstallRunner
+    {
+        BeforeNextResult = () => cancellation.Cancel()
+    };
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Cancelled, unchecked((int)0x8A150005)));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var results = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip")),
+        new ProgramInstallRequest("VideoLAN.VLC", MakeProgramConsent("VideoLAN.VLC"))], cancellation.Token);
+    Assert(results.Select(result => result.Outcome).SequenceEqual([
+        ProgramInstallOutcome.CancelledOutcomeUnknown, ProgramInstallOutcome.NotRun]),
+        "cancellation after the process starts must record an uncertain partial state and not start later packages");
+    Assert(results[0].Summary.Contains("parcial", StringComparison.OrdinalIgnoreCase),
+        "cancelled install must explain that partial side effects are possible");
+    Assert(runner.Calls.Count == 1, "cancellation must stop sequential package execution");
+}
+
+static async Task ProgramInstallRestartRequiredPausesRemainder()
+{
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, unchecked((int)0x8A150109)));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var results = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip")),
+        new ProgramInstallRequest("VideoLAN.VLC", MakeProgramConsent("VideoLAN.VLC"))]);
+    Assert(results.Select(result => result.Outcome).SequenceEqual([
+        ProgramInstallOutcome.RebootRequired, ProgramInstallOutcome.NotRunRestartPending]),
+        "reboot-required status must pause later package installs without restarting Windows");
+    Assert(runner.Calls.Count == 1, "packages after a pending restart must not start");
+}
+
+static async Task ProgramInstallRejectsUnknownId()
+{
+    var runner = new FakeProgramInstallRunner();
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var result = await service.ExecuteAsync([new ProgramInstallRequest("arbitrary.command", null)]);
+    Assert(result.Single().Outcome == ProgramInstallOutcome.UnknownPackageBlocked && runner.Calls.Count == 0,
+        "request input cannot become an arbitrary WinGet package or command");
+}
+
+static ProgramInstallConsent MakeProgramConsent(string packageId) => new(
+    packageId, "winget", ConsequencesReviewed: true, SourceAgreementAccepted: true, PackageAgreementAccepted: true);
+
 static void AssertThrows<TException>(Action action) where TException : Exception
 {
     try
@@ -3243,4 +3453,31 @@ sealed class TestEnabledDriverMutationPolicy : IDriverPackageMutationPolicy
 {
     public bool IsEnabled => true;
     public string BlockReason => string.Empty;
+}
+
+sealed class TestProgramInstallExecutionPolicy(bool isAllowed) : IProgramInstallExecutionPolicy
+{
+    public bool IsAllowed => isAllowed;
+    public string BlockReason => isAllowed ? string.Empty : "simulated blocked policy";
+}
+
+sealed class FakeProgramInstallRunner : IProgramInstallRunner
+{
+    public Queue<ProgramRunnerResult> Results { get; } = new();
+    public List<string> Calls { get; } = [];
+    public Action? BeforeNextResult { get; set; }
+
+    public Task<ProgramRunnerResult> InstallAsync(
+        ProgramPackageDefinition package,
+        ProgramInstallConsent consent,
+        CancellationToken cancellationToken)
+    {
+        Calls.Add(package.PackageId);
+        cancellationToken.ThrowIfCancellationRequested();
+        BeforeNextResult?.Invoke();
+        BeforeNextResult = null;
+        return Task.FromResult(Results.Count > 0
+            ? Results.Dequeue()
+            : new ProgramRunnerResult(ProgramRunnerOutcome.Completed, 0));
+    }
 }

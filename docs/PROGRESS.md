@@ -838,3 +838,51 @@ Continuação a partir do commit `516184eaa7f95e5f1e67a65833b6aa92d89c3c6b`. Nen
 - Checklist manual consolidado permanece válido: Drivers (candidatos, pendências, prévia, escopo e bloqueio), Processos (seleção e consequência sem encerrar/aplicar), Registro (prévia e escrita bloqueada), Rede (carregamento sem sondagem) e Energia (diagnóstico sem setters); conferir histórico apenas como captura revisada e não como ajuste aplicado. Nenhum item visual é promovido a aprovado sem observação.
 - Staging real em chave/driver de teste, associação real, instalação limpa, rollback/desinstalação, validação de conectividade e teste em outro computador permanecem pendentes e requerem aprovações/plano próprio. A ausência de teste real não é coberta pelos 108 checks simulados.
 - Nenhum novo instalador/ZIP foi produzido; Preview R2 permanece preservado e não contém as mudanças desta etapa.
+
+## 31. Catálogo pós-formatação e execução WinGet bloqueada — 2026-10-20
+
+Continuação a partir do estado limpo do commit `be75cc5b08c4211f8a7a995390c5c9b4aa2f46f0`. O código de drivers das etapas anteriores foi preservado. Nenhum instalador foi gerado; nenhum driver ou programa foi instalado; nenhuma configuração do Windows foi alterada.
+
+### Estado de drivers ao fechar a etapa anterior
+
+- **Implementação parcial:** o código de análise INF/dependências, staging e associação direcionada via `DiInstallDevice` existe; a composição ainda mantém `BlockedDriverPackageMutationPolicy`.
+- **Validação simulada:** o harness anterior cobre seleção e estados de falha/associação, mas não chama APIs nativas.
+- **Validação real pendente:** nenhuma execução nativa validou staging, associação, resultado ativo ou recuperação. Não há instalação de driver autorizada nesta entrega. A linha atual do plano permanece **Parcial**, não concluída.
+- **Visual pendente:** a checagem de identidade da janela divergiu entre a ferramenta e o PID/caminho conhecido. Não foi contornada; permanece o checklist manual consolidado em `docs/TESTING.md`.
+- Antes deste build, foi pedido que o usuário fechasse a janela que poderia manter `Optimizer.App.exe` bloqueado. O usuário confirmou o fechamento e o build normal Release passou conforme registrado abaixo; nenhum processo foi encerrado e `UseAppHost=false` não foi usado.
+
+### Implementação da primeira fatia de programas
+
+- Catálogo local fechado em dois IDs exatos: `7zip.7zip` e `VideoLAN.VLC`, origem WinGet `winget`. Os manifests x64 e metadados de licença/publicador/escopo/elevação foram verificados diretamente no repositório público `microsoft/winget-pkgs` em 2026-10-20; snapshot e URLs estão em `docs/PROGRAMS-AFTER-FORMAT.md`. O repositório é comunitário. Hash publicado no manifest não foi recalculado localmente porque não houve download.
+- A página “Programas pós-formatação” oferece seleção múltipla, consulta local somente leitura de entradas de desinstalação e uma revisão por pacote: ID/origem, ação, escopo declarado, licença/acordos, UAC possível e reinício. Ausência/ambiguidade/permissão incompleta não vira afirmação de “não instalado”. Catálogo datado não afirma “mais recente”; WinGet precisa confirmar metadata atual.
+- `ProgramInstallCommandFactory` e `ProgramInstallService` preparam execução individual sequencial por ID exato e resultados por pacote. `ArgumentList` não recebe comando arbitrário. O comando exclui força/downgrade, modo silencioso, escopo forçado, bypass de hash e pedido de reinício. Os acordos de origem e pacote são separados e ligados ao pacote.
+- **Bloqueio real:** a composição do app injeta `BlockedProgramInstallExecutionPolicy`. “Verificar bloqueio por pacote” só retorna o bloqueio por pacote e não inicia `winget.exe`. O runner WinGet não foi executado; não instalar WinGet automaticamente.
+- Detecção é local e só lê chaves Uninstall em HKLM/HKCU e visões de 32/64 bits; não altera o Registro nem chama WinGet. Ela não prova que um item foi originalmente instalado via WinGet.
+
+### Build e testes desta etapa
+
+- SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`; `--version` retornou `10.0.402`. `global.json` não foi alterado.
+- `dotnet build tests/Optimizer.Core.Tests/Optimizer.Core.Tests.csproj --configuration Release --no-restore`: sucesso, 0 avisos e 0 erros. O harness Core foi executado diretamente com `dotnet.exe` sobre a DLL. Resultado final após corrigir um assert de capitalização: **121/121 checks simulados aprovados**. Os novos cenários cobrem catálogo restrito, detecção incerta, command factory sem parâmetros arbitrários, bloqueio sem runner, consentimento por pacote, WinGet ausente, pacote não encontrado, conectividade, falha parcial, cancelamento e reinício pendente.
+- Após o usuário confirmar que a janela foi fechada, `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore` foi executado com o SDK explicitamente chamado `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` (10.0.402): **sucesso, 0 avisos e 0 erros**. A solução completa, incluindo WPF e apphost normal, compilou; não foi usado `UseAppHost=false` e nenhum processo foi encerrado.
+- O harness foi executado novamente após o build Release: **121/121 checks simulados aprovados**. A compilação não substitui abrir o aplicativo; não houve execução nem inspeção visual desta compilação. O checklist manual continua pendente.
+- **Validação real separada:** manifests exatos consultados via API GitHub. Em consulta local anterior, WinGet era `v1.29.380`, a origem `winget` estava configurada e `winget show` não conseguiu atualizar metadata, retornando HTTP 404 (`0x80190194`). Essa falha deixa descoberta atual da origem não confirmada neste host. Não houve runner/instalador real, downloads, UI visual ou validação pós-instalação.
+
+### Matriz atual do plano oficial
+
+| Fase/capacidade | Implementação | Revisão/integração | Simulação | Operação real | Estado e pendências |
+| --- | --- | --- | --- | --- | --- |
+| 0 — Ambiente e base | SDK 10.0.402 e build normal da solução Release disponíveis; raiz oficial preservada. | Várias páginas integradas; revisão visual deste diff pendente. | Harness Core 121/121. | Outro PC não testado. | **Parcial** — build local completo aprovado; validação visual e em outro PC ausentes. |
+| 1 — Diagnóstico/inventário | Hardware, Windows, drivers, energia/plano, rede e processos têm leitores nos escopos existentes. | Drivers/Rede/Processos têm telas; Windows corrigido em etapa anterior. | Harness cobre parsers/contratos. | Leituras locais anteriores; não repetidas como parte desta fatia. | **Parcial por capacidade** — visual de várias telas segue checklist manual; ausência de dado não é falha global. |
+| 2 — Catálogo, plano, consentimento e histórico/recuperação | Catálogo de ajustes/perfis, consentimento e diário implementados em parte. | Capturas e consequências estão em alguns fluxos; novo catálogo de programas só revisa, sem registro persistente de instalação. | Harness Core cobre consentimento/diário. | Snapshots simulados não são backup Windows; recuperação real não provada. | **Parcial** — recuperação operacional e histórico de pacote futuro pendentes. |
+| 3 — Ajustes reversíveis iniciais (VIDEOIDLE/energia) | Serviços e adaptadores existem. | Revisão/captura e bloqueio disponíveis. | Serviços testados com adaptadores fake. | Nenhuma alteração autorizada nesta etapa; não executada. | **Parcial/bloqueado** — aplicação/reversão reais dependem de aprovação específica. |
+| 4 — Registro, políticas, processos e rede | Leitura e alguns serviços de plano/operação existem. | Páginas integradas; Processo permanece sem validação visual aprovada. | Falhas/conflitos/cancelamentos simulados. | Nenhuma escrita nesta etapa; sondagem de Rede não executada. | **Parcial** — políticas/gerenciamento, validação real de mudanças e checklist visual pendentes. |
+| 5 — GPU | Inventário GPU e acesso a configurações nativas parcial. | Preferência por app e GPU em uso não são equivalentes. | Não há prova simulada de leitura suportada. | Sem telemetria/escrita GPU. | **Parcial/não disponível** — leitura programática comprovada não implementada. |
+| 6 — Pós-formatação: drivers e programas | Análise INF, staging/associação direcionada e catálogo WinGet de 2 pacotes; instalação de programas codificada por ID exato. | Tela Programs com multi-seleção, detecção local e prévia; UI Drivers mantida com bloqueio. | Drivers têm harness; programas: 121 checks Core com fakes, incluindo parcial/cancelamento/reboot. | Nenhum driver/programa instalado; WinGet runner não executado. | **Parcial** — APIs nativas de drivers não validadas; fonte WinGet falhou HTTP 404 local; instalação assistida e recuperação não verificadas. |
+| 7 — Distribuição/instalador | Preview R2 existe de versão anterior. | Nenhum pacote regenerado. | Sem novos testes. | Sem instalação/desinstalação nesta entrega. | **Parcial** — R2 não contém o código novo; Setup atual não testado nesta etapa. |
+| 8 — Ajustes específicos de hardware/firmware | Matriz CPU/GPU/OEM ausente. | Integração de fabricante/firmware ausente. | Nenhum. | Não autorizada/implementada. | **Não iniciado** — sem escrita em firmware, tensão ou frequência. |
+
+Permanecem no checklist manual: abrir Drivers e conferir candidatos/análise/prévia/bloqueio; Processo e estado da seleção sem encerrar/aplicar; Registro e bloqueio; Rede sem sondagem; Energia sem setter; e conferir Histórico distinguindo consentimento/captura de operação verificada. A ferramenta de inspeção visual não foi usada contra o executável divergente.
+
+### Candidato de pacote para aprovação futura
+
+Uma primeira instalação pequena para possível teste, ainda não aprovada nem executada: **7-Zip**, ID `7zip.7zip`, origem `winget`, manifest x64 revisado `26.04`, licença LGPL-2.1, escopo declarado `machine` e elevação própria declarada pelo manifest. O teste futuro deve primeiro confirmar metadata/installer/hash atuais com WinGet, apresentar o texto vigente dos acordos de origem e pacote, explicar UAC/escopo e eventual reinício, conferir se já está identificado localmente e solicitar autorização específica para instalar apenas esse pacote. O estado desta etapa é apenas candidato.
