@@ -19,7 +19,7 @@
       <Border Background="#111111" CornerRadius="11" Padding="15,13" Margin="0,0,0,15">
         <StackPanel>
           <TextBlock Text="ESCRITA REAL BLOQUEADA" Foreground="White" FontSize="10" FontWeight="Bold" />
-          <TextBlock Text="Esta versão pode ler, revisar, registrar consentimento e persistir a captura. Não aplica nem restaura HideFileExt. Gerenciamento organizacional desconhecido mantém operações recusadas; não há edição de políticas nesta tela." Foreground="#D6D6D6" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
+          <TextBlock Text="Esta versão pode ler, revisar, registrar consentimento e persistir a captura. Não aplica nem restaura HideFileExt. Ingresso em domínio, Entra e registro MDM são evidências de contexto; não comprovam que esta preferência está gerenciada. Somente uma entrada RSoP correspondente é evidência direta de Política de Grupo para esta preferência. Resultado desconhecido mantém operações recusadas." Foreground="#D6D6D6" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
         </StackPanel>
       </Border>
 
@@ -61,6 +61,8 @@
                 <Run Text="Consequência: " /><Run Text="{Binding ConsequenceText, Mode=OneWay}" />
               </TextBlock>
               <TextBlock Text="{Binding ManagementText}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
+              <TextBlock Text="Fontes e alcance das consultas" FontSize="10" FontWeight="Bold" Margin="0,9,0,0" />
+              <TextBlock Text="{Binding ManagementEvidenceText, Mode=OneWay}" FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
               <CheckBox Content="Li e aceito registrar esta consequência e a captura" IsChecked="{Binding ConsequenceAccepted, Mode=TwoWay}"
                         FontSize="10" Margin="0,11,0,0" />
               <TextBlock Text="{Binding CaptureNotice}" FontSize="9" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />

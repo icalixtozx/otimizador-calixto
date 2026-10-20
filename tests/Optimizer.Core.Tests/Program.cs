@@ -7,6 +7,7 @@ using Optimizer.Core.Network;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Registry;
 using Optimizer.Core.Programs;
+using Optimizer.Windows;
 using System.Net;
 using System.IO.Compression;
 
@@ -18,6 +19,16 @@ if (args.Length == 1 && args[0] == "--windows-registry-integration")
         return 2;
     }
     return WindowsRegistryIntegrationProbe.Run();
+}
+
+if (args.Length == 1 && args[0] == "--registry-management-readonly")
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("SKIP: a consulta de gerenciamento exige Windows.");
+        return 2;
+    }
+    return RegistryManagementReadOnlyProbe.Run();
 }
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -127,6 +138,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("registry state drift blocks apply and external restore conflicts", RegistryConflictsRefuseWrites),
     ("registry rechecks state after persisting intent before either setter", RegistryCheckpointDriftRefusesSetter),
     ("registry management unknown blocks apply", RegistryUnknownManagementBlocksApply),
+    ("registry management keeps domain, Entra, and MDM context separate from preference policy", () => RunSync(RegistryManagementContextDoesNotProvePreferencePolicy)),
+    ("registry management identifies only exact RSoP evidence as policy management", () => RunSync(RegistryManagementExactPolicyEvidenceIsSpecific)),
+    ("registry management preserves unavailable, unknown, and access-denied outcomes", () => RunSync(RegistryManagementUncertainEvidenceIsConservative)),
+    ("registry policy evidence must match the exact reviewed key and value", () => RunSync(RegistryPolicyEvidenceMatchesOnlyExactPreference)),
     ("registry production policy blocks writes by default", RegistryDefaultPolicyBlocksWrites),
     ("registry journal persistence failure happens before the setter", RegistryJournalFailurePreventsWrite),
     ("registry interruption is persisted without automatic rollback", RegistryInterruptionRemainsManual),
@@ -2536,6 +2551,81 @@ static async Task RegistryUnknownManagementBlocksApply()
         Assert(result.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 0,
             "unknown organization-management state must block writes even with an enabled test policy");
     });
+}
+
+static void RegistryManagementContextDoesNotProvePreferencePolicy()
+{
+    var assessment = RegistryManagementAssessmentBuilder.FromEvidence([
+        new(RegistryManagementEvidenceKind.ActiveDirectoryDomainJoin, RegistryManagementEvidenceStatus.Detected,
+            "fake NetGetJoinInformation", "local computer", "domain membership found"),
+        new(RegistryManagementEvidenceKind.MicrosoftEntraDeviceJoin, RegistryManagementEvidenceStatus.Detected,
+            "fake NetGetAadJoinInformation", "device", "device join found"),
+        new(RegistryManagementEvidenceKind.MicrosoftEntraWorkAccount, RegistryManagementEvidenceStatus.Unknown,
+            "fake NetGetAadJoinInformation", "current user", "not enumerated"),
+        new(RegistryManagementEvidenceKind.MdmRegistration, RegistryManagementEvidenceStatus.Detected,
+            "fake IsDeviceRegisteredWithManagement", "device", "MDM registered"),
+        new(RegistryManagementEvidenceKind.GroupPolicyForPreference, RegistryManagementEvidenceStatus.NotDetected,
+            "fake RSoP query", "user scope", "no exact setting in exposed data")
+    ]);
+
+    Assert(assessment.Status == RegistryManagementStatus.Unknown,
+        "domain join, Entra join, and MDM registration alone must not be promoted to preference-managed or unmanaged");
+    Assert(assessment.EvidenceItems.Count == 5 &&
+        assessment.EvidenceItems.Single(item => item.Kind == RegistryManagementEvidenceKind.ActiveDirectoryDomainJoin).Status == RegistryManagementEvidenceStatus.Detected &&
+        assessment.EvidenceItems.Single(item => item.Kind == RegistryManagementEvidenceKind.MdmRegistration).Status == RegistryManagementEvidenceStatus.Detected,
+        "independent sources and their outcomes must remain visible");
+}
+
+static void RegistryManagementExactPolicyEvidenceIsSpecific()
+{
+    var assessment = RegistryManagementAssessmentBuilder.FromEvidence([
+        new(RegistryManagementEvidenceKind.ActiveDirectoryDomainJoin, RegistryManagementEvidenceStatus.NotDetected,
+            "fake NetGetJoinInformation", "local computer", "workgroup"),
+        new(RegistryManagementEvidenceKind.MdmRegistration, RegistryManagementEvidenceStatus.NotDetected,
+            "fake IsDeviceRegisteredWithManagement", "device", "not registered via this API"),
+        new(RegistryManagementEvidenceKind.GroupPolicyForPreference, RegistryManagementEvidenceStatus.Detected,
+            "fake RSOP_RegistryPolicySetting", "user scope", "exact HideFileExt policy entry")
+    ]);
+
+    Assert(assessment.Status == RegistryManagementStatus.Managed,
+        "an exact RSoP policy entry for the reviewed preference must be identified as managed");
+    Assert(assessment.Detail.Contains("escrita e restauração permanecem bloqueadas", StringComparison.OrdinalIgnoreCase),
+        "detected policy evidence must explicitly keep mutations blocked");
+}
+
+static void RegistryManagementUncertainEvidenceIsConservative()
+{
+    var unknown = RegistryManagementAssessmentBuilder.FromEvidence([
+        new(RegistryManagementEvidenceKind.ActiveDirectoryDomainJoin, RegistryManagementEvidenceStatus.AccessDenied,
+            "fake NetGetJoinInformation", "local computer", "access denied"),
+        new(RegistryManagementEvidenceKind.MicrosoftEntraDeviceJoin, RegistryManagementEvidenceStatus.Unavailable,
+            "fake NetGetAadJoinInformation", "device", "entry point unavailable"),
+        new(RegistryManagementEvidenceKind.MdmRegistration, RegistryManagementEvidenceStatus.Failed,
+            "fake IsDeviceRegisteredWithManagement", "device", "failed"),
+        new(RegistryManagementEvidenceKind.GroupPolicyForPreference, RegistryManagementEvidenceStatus.AccessDenied,
+            "fake RSOP_RegistryPolicySetting", "computer scope", "access denied")
+    ]);
+    var empty = RegistryManagementAssessmentBuilder.FromEvidence([]);
+
+    Assert(unknown.Status == RegistryManagementStatus.Unknown &&
+        unknown.EvidenceItems.Any(item => item.Status == RegistryManagementEvidenceStatus.AccessDenied) &&
+        unknown.EvidenceItems.Any(item => item.Status == RegistryManagementEvidenceStatus.Unavailable),
+        "access denied and unavailable sources must remain distinct and must not imply unmanaged");
+    Assert(empty.Status == RegistryManagementStatus.Unknown,
+        "no collected evidence must be unknown, never unmanaged");
+}
+
+static void RegistryPolicyEvidenceMatchesOnlyExactPreference()
+{
+    var address = RegistryPreferenceCatalog.FileExtensionsAddress;
+    Assert(RegistryManagementAssessmentBuilder.IsExactHideFileExtPolicy(
+            "\\" + address.KeyPath.ToUpperInvariant(), "hidefileext"),
+        "the exact key and value should match case-insensitively even with a leading slash");
+    Assert(!RegistryManagementAssessmentBuilder.IsExactHideFileExtPolicy(
+            address.KeyPath + "\\Subkey", address.ValueName) &&
+        !RegistryManagementAssessmentBuilder.IsExactHideFileExtPolicy(
+            address.KeyPath, "OtherValue"),
+        "nearby policy paths or a different value must not be presented as policy for HideFileExt");
 }
 
 static async Task RegistryDefaultPolicyBlocksWrites()

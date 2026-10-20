@@ -70,6 +70,7 @@ public sealed class RegistryPageViewModel : ObservableObject
             OnPropertyChanged(nameof(CompatibilityText));
             OnPropertyChanged(nameof(ConsequenceText));
             OnPropertyChanged(nameof(ManagementText));
+            OnPropertyChanged(nameof(ManagementEvidenceText));
             OnPropertyChanged(nameof(ReviewedAtText));
             CaptureCommand.NotifyCanExecuteChanged();
         }
@@ -135,7 +136,14 @@ public sealed class RegistryPageViewModel : ObservableObject
 
     public string ManagementText => Review is null
         ? "Estado de gerenciamento ainda não consultado."
-        : $"Gerenciamento: {Review.Management.Status}. {Review.Management.Detail} Aplicação e restauração permanecem bloqueadas.";
+        : $"Avaliação da preferência: {ManagementStatusLabel(Review.Management.Status)}. {Review.Management.Detail} Aplicação e restauração permanecem bloqueadas.";
+
+    public string ManagementEvidenceText => Review is null
+        ? "As fontes de gerenciamento serão consultadas junto com a leitura solicitada."
+        : Review.Management.EvidenceItems.Count == 0
+            ? "Nenhuma fonte de evidência foi retornada."
+            : string.Join(Environment.NewLine, Review.Management.EvidenceItems.Select(item =>
+                $"{EvidenceKindLabel(item.Kind)} · {EvidenceStatusLabel(item.Status)}\nFonte: {item.Source} · Alcance: {item.Scope}\n{item.Detail}"));
 
     public string ReviewedAtText => Review is null
         ? string.Empty
@@ -271,5 +279,32 @@ public sealed class RegistryPageViewModel : ObservableObject
         JournalOperationState.RestoredVerified => "Restauração verificada no diário",
         JournalOperationState.NoChangeRequired => "Nenhuma escrita necessária",
         _ => "Estado desconhecido"
+    };
+
+    private static string ManagementStatusLabel(RegistryManagementStatus status) => status switch
+    {
+        RegistryManagementStatus.Managed => "política específica identificada",
+        RegistryManagementStatus.Unmanaged => "não gerenciado",
+        _ => "desconhecida"
+    };
+
+    private static string EvidenceKindLabel(RegistryManagementEvidenceKind kind) => kind switch
+    {
+        RegistryManagementEvidenceKind.ActiveDirectoryDomainJoin => "Ingresso em domínio Active Directory",
+        RegistryManagementEvidenceKind.MicrosoftEntraDeviceJoin => "Ingresso do dispositivo Microsoft Entra",
+        RegistryManagementEvidenceKind.MicrosoftEntraWorkAccount => "Conta de trabalho Microsoft Entra",
+        RegistryManagementEvidenceKind.MdmRegistration => "Registro em MDM",
+        RegistryManagementEvidenceKind.GroupPolicyForPreference => "Política de Grupo para HideFileExt",
+        _ => "Fonte de gerenciamento"
+    };
+
+    private static string EvidenceStatusLabel(RegistryManagementEvidenceStatus status) => status switch
+    {
+        RegistryManagementEvidenceStatus.Detected => "detectado",
+        RegistryManagementEvidenceStatus.NotDetected => "não detectado por esta fonte",
+        RegistryManagementEvidenceStatus.Unavailable => "indisponível",
+        RegistryManagementEvidenceStatus.AccessDenied => "acesso negado",
+        RegistryManagementEvidenceStatus.Failed => "falha na consulta",
+        _ => "desconhecido"
     };
 }

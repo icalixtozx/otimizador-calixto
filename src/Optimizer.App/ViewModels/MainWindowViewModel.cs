@@ -61,7 +61,7 @@ public sealed class MainWindowViewModel : ObservableObject
         var registryAdapter = new WindowsRegistryPreferenceAdapter();
         Registry = new RegistryPageViewModel(new RegistryPreferenceOperationService(
             registryAdapter,
-            registryAdapter,
+            new WindowsRegistryManagementInspector(),
             sharedJournalStore,
             processConsent,
             processJournal));

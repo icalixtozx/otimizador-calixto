@@ -10,7 +10,7 @@ namespace Optimizer.Windows;
 /// never accesses a Policies path, and writes only to HKCU in the explicit 64-bit registry view.
 /// The application does not call this adapter's write methods in this milestone.
 /// </summary>
-public sealed class WindowsRegistryPreferenceAdapter : IRegistryPreferenceAdapter, IRegistryManagementInspector
+public sealed class WindowsRegistryPreferenceAdapter : IRegistryPreferenceAdapter
 {
     public RegistryValueState Read(RegistryPreferenceAddress address)
     {
@@ -46,18 +46,6 @@ public sealed class WindowsRegistryPreferenceAdapter : IRegistryPreferenceAdapte
         using var key = root.OpenSubKey(address.KeyPath, writable: true) ??
             throw new IOException("A chave pai não existe; nenhum valor foi removido.");
         key.DeleteValue(address.ValueName, throwOnMissingValue: true);
-    }
-
-    /// <summary>
-    /// There is no supported API here that proves every possible Group Policy Preference, MDM,
-    /// logon script, or management-agent assignment is absent. Unknown therefore blocks operations.
-    /// </summary>
-    public RegistryManagementAssessment Assess(RegistryPreferenceAddress address)
-    {
-        ValidateAddress(address);
-        return new(
-            RegistryManagementStatus.Unknown,
-            "O Windows não expõe por esta interface uma prova completa de que o perfil não é administrado por GPP, MDM, script ou agente corporativo.");
     }
 
     private static void ValidateAddress(RegistryPreferenceAddress address)

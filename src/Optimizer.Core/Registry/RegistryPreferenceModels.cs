@@ -113,9 +113,71 @@ public enum RegistryManagementStatus
     Unknown
 }
 
+public enum RegistryManagementEvidenceKind
+{
+    ActiveDirectoryDomainJoin,
+    MicrosoftEntraDeviceJoin,
+    MicrosoftEntraWorkAccount,
+    MdmRegistration,
+    GroupPolicyForPreference
+}
+
+public enum RegistryManagementEvidenceStatus
+{
+    Detected,
+    NotDetected,
+    Unknown,
+    Unavailable,
+    AccessDenied,
+    Failed
+}
+
+public sealed record RegistryManagementEvidence(
+    RegistryManagementEvidenceKind Kind,
+    RegistryManagementEvidenceStatus Status,
+    string Source,
+    string Scope,
+    string Detail);
+
 public sealed record RegistryManagementAssessment(
     RegistryManagementStatus Status,
-    string Detail);
+    string Detail,
+    IReadOnlyList<RegistryManagementEvidence>? Evidence = null)
+{
+    public IReadOnlyList<RegistryManagementEvidence> EvidenceItems => Evidence ?? Array.Empty<RegistryManagementEvidence>();
+}
+
+/// <summary>
+/// Computes only what the collected evidence proves for this preference. Domain, Entra, and MDM
+/// enrollment are management context, not proof that HideFileExt is policy-controlled.
+/// </summary>
+public static class RegistryManagementAssessmentBuilder
+{
+    public static bool IsExactHideFileExtPolicy(string? registryKey, string? valueName) =>
+        string.Equals(registryKey?.Trim().TrimStart('\\'),
+            RegistryPreferenceCatalog.FileExtensionsAddress.KeyPath, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(valueName, RegistryPreferenceCatalog.FileExtensionsAddress.ValueName,
+            StringComparison.OrdinalIgnoreCase);
+
+    public static RegistryManagementAssessment FromEvidence(IEnumerable<RegistryManagementEvidence> evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        var items = evidence.ToArray();
+        if (items.Any(item => item.Kind == RegistryManagementEvidenceKind.GroupPolicyForPreference &&
+                              item.Status == RegistryManagementEvidenceStatus.Detected))
+        {
+            return new(
+                RegistryManagementStatus.Managed,
+                "O RSoP contém uma entrada de Política de Grupo para esta preferência. A avaliação é específica ao dado exposto pelo RSoP; escrita e restauração permanecem bloqueadas.",
+                items);
+        }
+
+        return new(
+            RegistryManagementStatus.Unknown,
+            "As consultas não encontraram uma prova conclusiva de controle nem de ausência de gerenciamento desta preferência. MDM, GPP, scripts e agentes podem não estar representados; a escrita permanece bloqueada.",
+            items);
+    }
+}
 
 public interface IRegistryPreferenceAdapter
 {
