@@ -1,7 +1,11 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using Optimizer.Core.Inventory;
 using Optimizer.Core.Adjustments;
 using Optimizer.Core.Profiles;
+using Optimizer.Core.Consent;
+using Optimizer.Core.Processes;
+using Optimizer.Core.Recovery;
 using Optimizer.Windows;
 
 namespace Optimizer.App.ViewModels;
@@ -27,6 +31,17 @@ public sealed class MainWindowViewModel : ObservableObject
             new WindowsVideoIdlePowerAdapter(),
             new WindowsPowerModeAdapter());
         Network = new NetworkPageViewModel(new Optimizer.Core.Network.NetworkDiagnosticsService(new WindowsNetworkDiagnosticsAdapter()));
+        var historyDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CalixtoOptimizer",
+            "History");
+        var processConsent = new PlanConsentService();
+        var processJournal = new OperationJournalCoordinator(processConsent);
+        Processes = new ProcessesPageViewModel(new ProcessPriorityOperationService(
+            new WindowsProcessPriorityAdapter(),
+            new JsonOperationJournalStore(historyDirectory),
+            processConsent,
+            processJournal));
         _currentPage = Overview;
         NavigationItems =
         [
@@ -36,6 +51,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new("tweaks", "Ajustes", "⌁", false, "Depois"),
             new("games", "Jogos", "◇", false, "Depois"),
             new("network", "Rede", "⌘", true, null),
+            new("processes", "Processos", "≋", true, null),
             new("history", "Histórico", "↺", true, null),
             new("settings", "Configurações", "⚙", false, "Depois")
         ];
@@ -47,6 +63,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public DriversPageViewModel Drivers { get; }
     public ProfilesPageViewModel Profiles { get; }
     public NetworkPageViewModel Network { get; }
+    public ProcessesPageViewModel Processes { get; }
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public RelayCommand<string> NavigateCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
@@ -104,6 +121,15 @@ public sealed class MainWindowViewModel : ObservableObject
             CurrentPage = Network;
             UpdateSelectedNavigation(key);
             _ = Network.LoadAdaptersAsync();
+        }
+        else if (key is "processes")
+        {
+            SelectedNavigationKey = key;
+            PageTitle = "Processos";
+            CurrentPage = Processes;
+            UpdateSelectedNavigation(key);
+            _ = Processes.LoadProcessesAsync();
+            _ = Processes.LoadHistoryAsync();
         }
     }
 

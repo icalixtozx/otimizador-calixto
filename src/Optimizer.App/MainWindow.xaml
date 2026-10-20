@@ -21,6 +21,9 @@
     <DataTemplate DataType="{x:Type vm:NetworkPageViewModel}">
       <views:NetworkPage />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ProcessesPageViewModel}">
+      <views:ProcessesPage />
+    </DataTemplate>
   </Window.Resources>
 
   <Grid>

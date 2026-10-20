@@ -65,6 +65,32 @@ Efeitos temporários observados e removidos: arquivos no diretório de teste, ch
 
 Restore concluído, build Release concluído com 0 avisos e 0 erros, e 54/54 model checks aprovados. Veja docs/PROGRESS.md, seção 15, para os comandos e limites do que foi verificado.
 
+## Processos e prioridade — 2026-10-19
+
+### Build e testes simulados
+
+O módulo usa `System.Diagnostics.Process` para consulta local e `PriorityClass` como API suportada do Windows. A escrita depende do direito `PROCESS_SET_INFORMATION`; acesso negado e limites de caminho/bitness são apresentados sem presumir permissão. A aplicação mantém `BlockedProcessPriorityMutationPolicy` como padrão, e a interface não expõe uma chamada a setter.
+
+Executado em PowerShell no diretório `%USERPROFILE%\Downloads\CalixtoOptimizer`, com SDK explícito `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` (10.0.402; `global.json` preservado em 10.0.100 com `latestFeature`):
+
+```powershell
+& "$env:LOCALAPPDATA\dotnet-sdk-10.0.402\dotnet.exe" build .\CalixtoOptimizer.sln --configuration Release
+& "$env:LOCALAPPDATA\dotnet-sdk-10.0.402\dotnet.exe" run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build
+```
+
+Resultado final: build da solução passou com 0 avisos e 0 erros; harness passou **72/72** checks. Os novos casos de processos usam somente `FakeProcessPriorityAdapter` e cobrem: item individual/consequências/ausência de Tempo real; plano, consentimento e snapshot no diário comum; política bloqueada; acesso negado; processo encerrado; mudança de estado; reutilização de PID entre pré-checagem e setter e durante restauração; falha de persistência antes do setter; falha de persistência após escrita simulada sem rollback automático; restauração condicional verificada; conflito externo. Outro teste fixa os valores numéricos originais do diário JSON e impede substituir estado de mutação verificada por simulação.
+
+O projeto `tests/Optimizer.ProcessProbe` também compilou. Ele imprime PID, criação UTC e caminho e aguarda Enter; não altera prioridade. O executável não foi iniciado neste marco.
+
+### Diagnóstico real e validação visual
+
+- Não foi feita consulta do inventário de processos neste computador. Nenhum PID/caminho pessoal foi coletado para este registro e nenhum setter de prioridade foi chamado.
+- A página foi integrada por XAML/ViewModel, mas a janela não foi aberta para inspeção visual; o mouse/teclado não foi controlado. A interface está compilada, mas o resultado visual está pendente.
+- Checklist manual: abra **Processos**, use **Atualizar processos**, confira estados de acesso negado/parcial e os campos de PID/criação/caminho; escolha uma única linha; confirme que a lista de destino não inclui Tempo real; solicite a revisão e confira a consequência; se desejar validar a persistência, marque o consentimento e clique **Registrar consentimento e captura**, depois confira o evento no histórico. O banner deve continuar informando que a mutação real está bloqueada. Não há botão para aplicar/restaurar nesta versão.
+- Em um futuro teste real, o processo descartável `CalixtoOptimizer.ProcessProbe.exe` deve ser iniciado e identificado por leitura atual. Só depois de mostrar o PID, criação, caminho e prioridade atual será pedido consentimento específico para uma mudança única; o teste de reversão também requer aprovação e será condicionado à identidade/estado atuais. Nenhuma dessas mutações foi autorizada ou executada agora.
+
+Nenhum ZIP ou instalador foi gerado. A validação visual em outro computador, teste real com o probe, instalação do build atual e teste de uso/desempenho continuam pendentes.
+
 ## Diagnóstico de rede somente leitura (2026-10-19)
 
 ### Build e testes simulados

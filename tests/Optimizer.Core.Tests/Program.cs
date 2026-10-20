@@ -4,6 +4,7 @@ using Optimizer.Core.Profiles;
 using Optimizer.Core.Consent;
 using Optimizer.Core.Recovery;
 using Optimizer.Core.Network;
+using Optimizer.Core.Processes;
 using System.Net;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -28,6 +29,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("interrupted journal write preserves the last committed entry", JournalInterruptedWritePreservesCommittedEntry),
     ("journal resume assessment detects safe points and plan conflicts", () => RunSync(JournalResumeAssessmentIsConservative)),
     ("journal requires consent and complete snapshots before arming", () => RunSync(JournalRequiresConsentAndSnapshots)),
+    ("journal state numeric values remain compatible with existing history", () => RunSync(JournalEnumValuesRemainStable)),
     ("recovery assessment never performs automatic rollback", () => RunSync(RecoveryAssessmentIsReadOnly)),
     ("profile catalog exposes the four requested profiles", () => RunSync(ProfileCatalogHasFourProfiles)),
     ("light and balanced profiles respect their risk limits", () => RunSync(ProfilesRespectRiskLimits)),
@@ -70,7 +72,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("network diagnostic distinguishes local inventory failure from no connection", NetworkAdapterReadFailureIsNotOffline),
     ("network diagnostic preserves partial responses and loss counts", NetworkPartialResultsArePreserved),
     ("network diagnostic cancellation returns completed partial measurements", NetworkCancellationPreservesPartialResults),
-    ("network diagnostic rejects URLs and unbounded probe settings", NetworkInputIsBounded)
+    ("network diagnostic rejects URLs and unbounded probe settings", NetworkInputIsBounded),
+    ("process priority review is individual, consequence-bound, and excludes realtime", () => RunSync(ProcessReviewIsIndividualAndBounded)),
+    ("process priority capture uses shared consent and history while default writes stay blocked", ProcessCaptureUsesSharedJournalAndDefaultBlocksWrites),
+    ("process priority access denied and ended processes cannot be prepared", ProcessAccessDeniedAndEndedAreRefused),
+    ("process priority conflict and PID reuse refuse writes", ProcessConflictAndPidReuseRefuseWrites),
+    ("process priority journal failure before write leaves the adapter untouched", ProcessJournalFailurePreventsWrite),
+    ("process priority interruption after write remains unverified without auto-restore", ProcessPostWriteJournalFailureDoesNotRollback),
+    ("process priority restoration is conditional and verified for the same process", ProcessRestoreIsConditionalAndVerified),
+    ("process priority restoration rejects external changes and ended targets", ProcessRestoreRejectsConflictAndExit)
 };
 
 var failures = 0;
@@ -211,6 +221,290 @@ static async Task NetworkInputIsBounded()
     await AssertThrowsAsync<ArgumentException>(() => service.TestConnectivityAsync("https://example.test/path"));
     await AssertThrowsAsync<ArgumentOutOfRangeException>(() => service.TestConnectivityAsync("example.test", 11));
     await AssertThrowsAsync<ArgumentOutOfRangeException>(() => service.TestConnectivityAsync("example.test", 1, 6000));
+}
+
+static void ProcessReviewIsIndividualAndBounded()
+{
+    var (adapter, _, store, identity) = CreateProcessPriorityFixture(Path.Combine(Path.GetTempPath(), "unused-process-priority-review"));
+    var service = CreateProcessPriorityService(adapter, store);
+    var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+        new PlatformDescriptor(true, "x64", 26100));
+    var item = review.Plan.Items.Single();
+
+    Assert(review.Plan.CanAcceptConsent && !review.Plan.CanSimulate && !review.Plan.CanApply,
+        "review consent must not enable simulation or real application");
+    Assert(item.Status == PlanItemStatus.ReadyForExplicitApproval && item.AdjustmentId == ProcessPriorityOperationService.AdjustmentId,
+        "the engine must receive one reviewable individual process item");
+    Assert(!ProcessPriorityTargets.Allowed.Contains(ProcessPriorityLevel.Realtime),
+        "Realtime must not be an offered target");
+    Assert(item.Consequence.Contains("não garante FPS", StringComparison.OrdinalIgnoreCase) &&
+        item.Consequence.Contains("outros aplicativos", StringComparison.OrdinalIgnoreCase),
+        "consequences must describe limits and impact on other applications");
+    Assert(review.Identity.ProcessId == identity.ProcessId && review.Identity.CreatedAtUtc == identity.CreatedAtUtc,
+        "review must bind PID and creation time");
+    AssertThrows<ArgumentOutOfRangeException>(() => service.CreateReview(identity,
+        ProcessPriorityLevel.Realtime, new PlatformDescriptor(true, "x64", 26100)));
+
+    var unsupportedAdapter = new FakeProcessPriorityAdapter();
+    unsupportedAdapter.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.Unknown));
+    var unsupportedService = CreateProcessPriorityService(unsupportedAdapter, store);
+    AssertThrows<InvalidOperationException>(() => unsupportedService.CreateReview(identity,
+        ProcessPriorityLevel.Normal, new PlatformDescriptor(true, "x64", 26100)));
+
+    unsupportedAdapter.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.Realtime));
+    AssertThrows<InvalidOperationException>(() => unsupportedService.CreateReview(identity,
+        ProcessPriorityLevel.Normal, new PlatformDescriptor(true, "x64", 26100)));
+}
+
+static async Task ProcessCaptureUsesSharedJournalAndDefaultBlocksWrites()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, storage, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var entry = await service.CaptureAsync(review, consequencesAccepted: true);
+
+        Assert(entry.State == JournalOperationState.SnapshotsCaptured && entry.Consent is not null,
+            "capturing must persist consent and the prior process state to the common journal");
+        Assert(!entry.Consent!.CanAuthorizeRealApplication,
+            "reviewed consequences alone cannot authorize a write");
+        Assert(OperationRecoveryEvaluator.Assess(entry).Status == RecoveryAssessmentStatus.NoMutationRecorded,
+            "the common recovery evaluator must confirm that capture preceded every mutation");
+        var persisted = await store.LoadAsync(entry.OperationId);
+        Assert(persisted?.Snapshots.Single().Values["PreviousPriority"] == nameof(ProcessPriorityLevel.Normal),
+            "the persisted capture should contain the actual prior priority from the adapter");
+
+        var approval = ProcessApproval(entry, ProcessPriorityAction.Apply);
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(entry.OperationId, approval));
+        Assert(adapter.WriteCalls == 0, "the production default must deny all real setters");
+        Assert(storage.NextWriteFailure == JournalWriteFailure.None, "normal capture must complete without storage faults");
+    });
+}
+
+static async Task ProcessAccessDeniedAndEndedAreRefused()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var identity = SampleProcessIdentity();
+        var deniedAdapter = new FakeProcessPriorityAdapter();
+        deniedAdapter.SetObservation(new ProcessObservation(identity.ProcessId, "protected-sample", null, null,
+            ProcessInspectionStatus.AccessDenied, "synthetic access denied"));
+        var deniedService = CreateProcessPriorityService(deniedAdapter,
+            new JsonOperationJournalStore(Path.Combine(directory, "denied")));
+        Assert(deniedService.ListProcesses().Processes.Single().Status == ProcessInspectionStatus.AccessDenied,
+            "listing should preserve access-denied state");
+        AssertThrows<InvalidOperationException>(() => deniedService.CreateReview(identity,
+            ProcessPriorityLevel.High, new PlatformDescriptor(true, "x64", 26100)));
+        Assert(deniedAdapter.WriteCalls == 0, "access denied must never reach a setter");
+
+        var accessChanges = new FakeProcessPriorityAdapter();
+        accessChanges.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.Normal));
+        var accessService = CreateProcessPriorityService(accessChanges,
+            new JsonOperationJournalStore(Path.Combine(directory, "access-changes")), allowWrites: true);
+        var accessReview = accessService.CreateReview(identity, ProcessPriorityLevel.High,
+            new PlatformDescriptor(true, "x64", 26100));
+        var accessCapture = await accessService.CaptureAsync(accessReview, true);
+        accessChanges.SetObservation(new ProcessObservation(identity.ProcessId, "protected-sample", null, null,
+            ProcessInspectionStatus.AccessDenied, "synthetic access denied after capture"));
+        var accessFailure = await accessService.ApplyAsync(accessCapture.OperationId,
+            ProcessApproval(accessCapture, ProcessPriorityAction.Apply));
+        Assert(accessFailure.State == JournalOperationState.SnapshotsCaptured &&
+            accessFailure.Events.Last().EventType == "WriteNotAttempted" && accessChanges.WriteCalls == 0,
+            "access denial after capture must be journaled as a pre-write failure, not misreported as a state conflict");
+
+        var ended = new FakeProcessPriorityAdapter();
+        ended.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.Normal));
+        var endedStore = new JsonOperationJournalStore(Path.Combine(directory, "ended"));
+        var service = CreateProcessPriorityService(ended, endedStore, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.High,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        ended.SetObservation(new ProcessObservation(identity.ProcessId, "probe", identity, null,
+            ProcessInspectionStatus.Exited, "synthetic process ended"));
+        var result = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        Assert(result.State == JournalOperationState.Conflict && ended.WriteCalls == 0,
+            "an ended process should be recorded without any write attempt");
+        Assert(result.Events.Last().Message.Contains("terminou", StringComparison.OrdinalIgnoreCase),
+            "the journal should explicitly record process termination");
+    });
+}
+
+static async Task ProcessConflictAndPidReuseRefuseWrites()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        adapter.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.BelowNormal));
+        var conflict = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        Assert(conflict.State == JournalOperationState.Conflict && adapter.WriteCalls == 0,
+            "a priority changed since capture must be refused as a conflict");
+    });
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        adapter.BeforeSet = fake => fake.SetObservation(ProcessObservationFor(
+            identity with { CreatedAtUtc = identity.CreatedAtUtc.AddSeconds(5) }, ProcessPriorityLevel.Normal));
+        var reused = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        Assert(reused.State == JournalOperationState.MutationMayHaveStarted &&
+            reused.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 0,
+            "a PID reused between preflight and adapter write must be rejected and kept recoverable after the intent was armed");
+    });
+}
+
+static async Task ProcessJournalFailurePreventsWrite()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, storage, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        storage.NextWriteFailure = JournalWriteFailure.Io;
+        await AssertThrowsAsync<IOException>(() => service.ApplyAsync(
+            capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply)));
+        Assert(adapter.WriteCalls == 0, "a failure to persist mutation intent must prevent the setter call");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == JournalOperationState.SnapshotsCaptured,
+            "the last durable operation state must remain the captured snapshot");
+    });
+}
+
+static async Task ProcessPostWriteJournalFailureDoesNotRollback()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, storage, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        adapter.AfterWrite = () => storage.NextWriteFailure = JournalWriteFailure.Io;
+
+        await AssertThrowsAsync<IOException>(() => service.ApplyAsync(
+            capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply)));
+        Assert(adapter.WriteCalls == 1 && adapter.Current(identity.ProcessId)?.CurrentPriority == ProcessPriorityLevel.AboveNormal,
+            "the fake operation should apply once before injected journal persistence failure");
+        Assert((await store.LoadAsync(capture.OperationId))?.State == JournalOperationState.MutationMayHaveStarted,
+            "the durable armed entry must remain for manual review after the final journal write fails");
+        Assert(adapter.WriteCalls == 1, "no automatic rollback may be attempted after a persistence failure");
+    });
+}
+
+static async Task ProcessRestoreIsConditionalAndVerified()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        var applied = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        Assert(applied.State == JournalOperationState.MutationVerified, "fake readback should verify the selected process");
+
+        var restored = await service.RestoreAsync(applied.OperationId, ProcessApproval(applied, ProcessPriorityAction.Restore));
+        Assert(restored.State == JournalOperationState.RestoredVerified,
+            "conditional restoration should be verified through the shared journal");
+        Assert(adapter.Current(identity.ProcessId)?.CurrentPriority == ProcessPriorityLevel.Normal && adapter.WriteCalls == 2,
+            "restoration should restore only the captured process to its previous value");
+    });
+}
+
+static async Task ProcessRestoreRejectsConflictAndExit()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        var applied = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        adapter.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.BelowNormal));
+        var conflict = await service.RestoreAsync(applied.OperationId, ProcessApproval(applied, ProcessPriorityAction.Restore));
+        Assert(conflict.State == JournalOperationState.MutationVerified && conflict.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 1,
+            "external priority changes must prevent conditional restoration");
+    });
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        var applied = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        adapter.SetObservation(new ProcessObservation(identity.ProcessId, "probe", identity, null,
+            ProcessInspectionStatus.Exited, "synthetic exit before restore"));
+        var ended = await service.RestoreAsync(applied.OperationId, ProcessApproval(applied, ProcessPriorityAction.Restore));
+        Assert(ended.State == JournalOperationState.MutationVerified && ended.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 1,
+            "an ended process must not be restored through a PID that may be reused");
+    });
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (adapter, _, store, identity) = CreateProcessPriorityFixture(directory);
+        var service = CreateProcessPriorityService(adapter, store, allowWrites: true);
+        var review = service.CreateReview(identity, ProcessPriorityLevel.AboveNormal,
+            new PlatformDescriptor(true, "x64", 26100));
+        var capture = await service.CaptureAsync(review, true);
+        var applied = await service.ApplyAsync(capture.OperationId, ProcessApproval(capture, ProcessPriorityAction.Apply));
+        var reusedIdentity = identity with { CreatedAtUtc = identity.CreatedAtUtc.AddSeconds(9) };
+        adapter.SetObservation(ProcessObservationFor(reusedIdentity, ProcessPriorityLevel.AboveNormal));
+        var reused = await service.RestoreAsync(applied.OperationId, ProcessApproval(applied, ProcessPriorityAction.Restore));
+        Assert(reused.State == JournalOperationState.MutationVerified && reused.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 1,
+            "restoration must refuse a different process that reused the captured PID");
+    });
+}
+
+static ProcessIdentity SampleProcessIdentity(int processId = 54321) => new(
+    processId,
+    DateTimeOffset.Parse("2026-02-03T04:05:06.7890000+00:00", System.Globalization.CultureInfo.InvariantCulture),
+    @"C:\Samples\CalixtoOptimizer.ProcessProbe.exe");
+
+static ProcessObservation ProcessObservationFor(ProcessIdentity identity, ProcessPriorityLevel priority) =>
+    new(identity.ProcessId, "CalixtoOptimizer.ProcessProbe", identity, priority,
+        ProcessInspectionStatus.Available, "synthetic identity and priority");
+
+static (FakeProcessPriorityAdapter Adapter, FaultInjectingJournalStorage Storage,
+    JsonOperationJournalStore Store, ProcessIdentity Identity) CreateProcessPriorityFixture(string directory)
+{
+    var adapter = new FakeProcessPriorityAdapter();
+    var identity = SampleProcessIdentity();
+    adapter.SetObservation(ProcessObservationFor(identity, ProcessPriorityLevel.Normal));
+    var storage = new FaultInjectingJournalStorage();
+    var store = new JsonOperationJournalStore(directory, storage);
+    return (adapter, storage, store, identity);
+}
+
+static ProcessPriorityOperationService CreateProcessPriorityService(
+    FakeProcessPriorityAdapter adapter,
+    JsonOperationJournalStore store,
+    bool allowWrites = false)
+{
+    var consent = new PlanConsentService();
+    return new ProcessPriorityOperationService(adapter, store, consent,
+        new OperationJournalCoordinator(consent), new ConfirmedProcessPriorityMutationPolicy(allowWrites));
+}
+
+static ProcessPriorityApproval ProcessApproval(OperationJournalEntry entry, ProcessPriorityAction action)
+{
+    var fingerprint = entry.Snapshots.Single().Values["CaptureFingerprint"];
+    return new ProcessPriorityApproval(entry.OperationId, action, fingerprint,
+        ConsequencesAccepted: true,
+        RecoveryConsequencesAccepted: action == ProcessPriorityAction.Restore,
+        ProcessPriorityOperationService.RequiredConfirmationPhrase(entry.OperationId, action));
 }
 
 static void SignatureFilterKeepsUnknownSeparate()
@@ -949,7 +1243,7 @@ static async Task JournalWriteFailurePreservesCommittedEntry()
         var storage = new FaultInjectingJournalStorage();
         var store = new JsonOperationJournalStore(directory, storage);
         var coordinator = new OperationJournalCoordinator(new PlanConsentService());
-        var entry = coordinator.CreatePlanned(plan, "custom");
+        var entry = coordinator.CreatePlanned(plan, "custom", JournalDataOrigin.SyntheticDemonstration);
         await store.SaveAsync(entry);
         storage.NextWriteFailure = JournalWriteFailure.Io;
 
@@ -968,7 +1262,7 @@ static async Task JournalDiskFullPreservesCommittedEntry()
         var storage = new FaultInjectingJournalStorage();
         var store = new JsonOperationJournalStore(directory, storage);
         var coordinator = new OperationJournalCoordinator(new PlanConsentService());
-        var entry = coordinator.CreatePlanned(plan, "custom");
+        var entry = coordinator.CreatePlanned(plan, "custom", JournalDataOrigin.SyntheticDemonstration);
         await store.SaveAsync(entry);
         storage.NextWriteFailure = JournalWriteFailure.DiskFull;
 
@@ -989,7 +1283,7 @@ static async Task JournalInterruptedWritePreservesCommittedEntry()
         var storage = new FaultInjectingJournalStorage();
         var store = new JsonOperationJournalStore(directory, storage);
         var coordinator = new OperationJournalCoordinator(new PlanConsentService());
-        var entry = coordinator.CreatePlanned(plan, "custom");
+        var entry = coordinator.CreatePlanned(plan, "custom", JournalDataOrigin.SyntheticDemonstration);
         await store.SaveAsync(entry);
         storage.NextWriteFailure = JournalWriteFailure.Interruption;
 
@@ -1065,7 +1359,7 @@ static void RecoveryAssessmentIsReadOnly()
 {
     var (_, _, plan) = CreateTwoItemPlan();
     var coordinator = new OperationJournalCoordinator(new PlanConsentService());
-    var planned = coordinator.CreatePlanned(plan, "custom");
+    var planned = coordinator.CreatePlanned(plan, "custom", JournalDataOrigin.SyntheticDemonstration);
     var simulated = coordinator.MarkSimulationCompleted(planned);
     Assert(OperationRecoveryEvaluator.Assess(simulated).Status ==
         RecoveryAssessmentStatus.NoSystemChangeExpected,
@@ -1077,6 +1371,25 @@ static void RecoveryAssessmentIsReadOnly()
         "interrupted operation without snapshots must be identified");
     Assert(!assessment.CanAutomaticallyRecover,
         "recovery assessment must never claim automatic rollback");
+}
+
+static void JournalEnumValuesRemainStable()
+{
+    Assert((int)JournalOperationState.Planned == 0 &&
+        (int)JournalOperationState.ConsentRecorded == 1 &&
+        (int)JournalOperationState.SnapshotsCaptured == 2 &&
+        (int)JournalOperationState.MutationMayHaveStarted == 3 &&
+        (int)JournalOperationState.Failed == 4 &&
+        (int)JournalOperationState.Interrupted == 5 &&
+        (int)JournalOperationState.SimulationCompleted == 6,
+        "existing JSON numeric states must retain their original values");
+    var (_, _, plan) = CreateTwoItemPlan();
+    var coordinator = new OperationJournalCoordinator(new PlanConsentService());
+    var realPlanEntry = coordinator.CreatePlanned(plan, "custom");
+    AssertThrows<InvalidOperationException>(() => coordinator.MarkSimulationCompleted(realPlanEntry));
+    var syntheticEntry = coordinator.CreatePlanned(plan, "custom", JournalDataOrigin.SyntheticDemonstration);
+    AssertThrows<InvalidOperationException>(() => coordinator
+        .MarkSimulationCompleted(syntheticEntry with { State = JournalOperationState.MutationVerified }));
 }
 
 static void SyntheticJournalCannotCreateSnapshots()
@@ -1460,6 +1773,51 @@ sealed class FakeNetworkDiagnosticsAdapter(NetworkInventoryResult inventory) : I
         var reply = Probes.Count > 0 ? Probes.Dequeue() : new NetworkProbeReply(NetworkProbeStatus.TimedOut);
         return Task.FromResult(reply);
     }
+}
+
+sealed class FakeProcessPriorityAdapter : IProcessPriorityAdapter
+{
+    private readonly Dictionary<int, ProcessObservation> _observations = [];
+    public int WriteCalls { get; private set; }
+    public List<ProcessPriorityLevel> Writes { get; } = [];
+    public Action<FakeProcessPriorityAdapter>? BeforeSet { get; set; }
+    public Action? AfterWrite { get; set; }
+
+    public ProcessInventoryResult ListProcesses() => new(DateTimeOffset.UtcNow,
+        Array.AsReadOnly(_observations.Values.OrderBy(item => item.ProcessId).ToArray()), []);
+
+    public ProcessObservation Inspect(int processId) => _observations.TryGetValue(processId, out var observation)
+        ? observation
+        : new(processId, null, null, null, ProcessInspectionStatus.NotFound, "synthetic PID missing");
+
+    public ProcessPriorityWriteResult SetPriority(ProcessIdentity expectedIdentity,
+        ProcessPriorityLevel expectedCurrentPriority, ProcessPriorityLevel targetPriority)
+    {
+        BeforeSet?.Invoke(this);
+        BeforeSet = null;
+        var current = Inspect(expectedIdentity.ProcessId);
+        var identity = expectedIdentity.CompareTo(current.Identity);
+        if (current.Status is ProcessInspectionStatus.Exited or ProcessInspectionStatus.NotFound)
+            return new(ProcessPriorityWriteStatus.ProcessExited, false, "synthetic process exited before setter");
+        if (identity == ProcessIdentityComparison.DifferentProcess)
+            return new(ProcessPriorityWriteStatus.IdentityMismatch, false, "synthetic PID was reused");
+        if (identity == ProcessIdentityComparison.Unverifiable || current.Identity is null)
+            return new(ProcessPriorityWriteStatus.IdentityUnverifiable, false, "synthetic identity unavailable");
+        if (!current.CanReviewPriority)
+            return new(ProcessPriorityWriteStatus.AccessDenied, false, "synthetic access denied");
+        if (current.CurrentPriority != expectedCurrentPriority)
+            return new(ProcessPriorityWriteStatus.PriorityConflict, false, "synthetic priority conflict");
+
+        WriteCalls++;
+        Writes.Add(targetPriority);
+        _observations[current.ProcessId] = current with { CurrentPriority = targetPriority };
+        AfterWrite?.Invoke();
+        AfterWrite = null;
+        return new(ProcessPriorityWriteStatus.Applied, true, "synthetic setter completed");
+    }
+
+    public void SetObservation(ProcessObservation observation) => _observations[observation.ProcessId] = observation;
+    public ProcessObservation? Current(int processId) => _observations.TryGetValue(processId, out var observation) ? observation : null;
 }
 
 sealed class InlineProgress<T>(Action<T> report) : IProgress<T>

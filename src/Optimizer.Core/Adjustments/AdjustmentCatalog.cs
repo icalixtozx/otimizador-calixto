@@ -60,6 +60,11 @@ public sealed class AdjustmentCatalog
         {
             throw new ArgumentException("Simulation-only entries must declare supported architectures.", nameof(definition));
         }
+        if (definition.Availability == AdjustmentAvailability.RequiresSpecificApproval &&
+            definition.SupportedArchitectures.Count == 0)
+        {
+            throw new ArgumentException("Reviewable entries must declare supported architectures.", nameof(definition));
+        }
         if (definition.Availability == AdjustmentAvailability.BlockedExperimental &&
             string.IsNullOrWhiteSpace(definition.AvailabilityReason))
         {

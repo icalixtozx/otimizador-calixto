@@ -16,28 +16,39 @@ public sealed class AdjustmentCompatibilityEvaluator
             return new(
                 CompatibilityStatus.Blocked,
                 false,
+                false,
                 adjustment.AvailabilityReason ?? "Este item experimental está bloqueado.");
         }
 
         if (!platform.IsWindows)
-            return new(CompatibilityStatus.Incompatible, false, "O item está limitado ao Windows.");
+            return new(CompatibilityStatus.Incompatible, false, false, "O item está limitado ao Windows.");
 
         if (string.IsNullOrWhiteSpace(platform.Architecture))
-            return new(CompatibilityStatus.Unknown, false, "A arquitetura não foi identificada.");
+            return new(CompatibilityStatus.Unknown, false, false, "A arquitetura não foi identificada.");
 
         if (!adjustment.SupportedArchitectures.Contains(platform.Architecture, StringComparer.OrdinalIgnoreCase))
-            return new(CompatibilityStatus.Incompatible, false, "A arquitetura não consta no suporte declarado.");
+            return new(CompatibilityStatus.Incompatible, false, false, "A arquitetura não consta no suporte declarado.");
 
         if (adjustment.MinimumWindowsBuild is int minimumBuild)
         {
             if (platform.WindowsBuild is null)
-                return new(CompatibilityStatus.Unknown, false, "O build do Windows não foi identificado.");
+                return new(CompatibilityStatus.Unknown, false, false, "O build do Windows não foi identificado.");
             if (platform.WindowsBuild.Value < minimumBuild)
-                return new(CompatibilityStatus.Incompatible, false, $"Requer build {minimumBuild} ou posterior.");
+                return new(CompatibilityStatus.Incompatible, false, false, $"Requer build {minimumBuild} ou posterior.");
+        }
+
+        if (adjustment.Availability == AdjustmentAvailability.RequiresSpecificApproval)
+        {
+            return new(
+                CompatibilityStatus.ReviewSupported,
+                false,
+                true,
+                "Compatível para revisão individual; execução real continua bloqueada por padrão e exige aprovação específica.");
         }
 
         return new(
             CompatibilityStatus.SimulationSupported,
+            true,
             true,
             "Compatível somente com simulação. Nenhuma alteração do Windows está disponível.");
     }
@@ -90,6 +101,7 @@ public sealed class AdjustmentPlanService(
         var status = assessment.Status switch
         {
             CompatibilityStatus.SimulationSupported => PlanItemStatus.ReadyForSimulation,
+            CompatibilityStatus.ReviewSupported => PlanItemStatus.ReadyForExplicitApproval,
             CompatibilityStatus.Blocked => PlanItemStatus.Blocked,
             CompatibilityStatus.Incompatible => PlanItemStatus.Incompatible,
             _ => PlanItemStatus.Blocked

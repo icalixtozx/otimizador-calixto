@@ -5,13 +5,19 @@ namespace Optimizer.Core.Recovery;
 
 public enum JournalOperationState
 {
-    Planned,
-    ConsentRecorded,
-    SnapshotsCaptured,
-    MutationMayHaveStarted,
-    Failed,
-    Interrupted,
-    SimulationCompleted
+    // Keep the original numeric values stable: existing journal JSON stores these enums as numbers.
+    Planned = 0,
+    ConsentRecorded = 1,
+    SnapshotsCaptured = 2,
+    MutationMayHaveStarted = 3,
+    Failed = 4,
+    Interrupted = 5,
+    SimulationCompleted = 6,
+    MutationVerified = 7,
+    RestorationMayHaveStarted = 8,
+    RestoredVerified = 9,
+    NoChangeRequired = 10,
+    Conflict = 11
 }
 
 public enum RecoveryAssessmentStatus
@@ -81,8 +87,8 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
         JournalDataOrigin dataOrigin = JournalDataOrigin.UserPlan)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        if (!plan.CanSimulate)
-            throw new InvalidOperationException("Only fully described plans can enter the journal.");
+        if (!plan.CanAcceptConsent)
+            throw new InvalidOperationException("Only fully described and reviewable plans can enter the journal.");
         if (string.IsNullOrWhiteSpace(profileId))
             throw new ArgumentException("Profile ID is required.", nameof(profileId));
 
@@ -189,14 +195,66 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
     public OperationJournalEntry MarkFailed(OperationJournalEntry entry, string reason) =>
         MarkTerminal(entry, JournalOperationState.Failed, "Failed", reason);
 
+    public OperationJournalEntry MarkMutationVerified(OperationJournalEntry entry, string message) =>
+        MarkFromState(entry, JournalOperationState.MutationMayHaveStarted,
+            JournalOperationState.MutationVerified, "MutationVerified", message);
+
+    public OperationJournalEntry MarkRestorationMayHaveStarted(OperationJournalEntry entry, string message)
+    {
+        if (entry.State is not (JournalOperationState.MutationMayHaveStarted or JournalOperationState.MutationVerified or
+            JournalOperationState.Failed or JournalOperationState.Interrupted or JournalOperationState.RestorationMayHaveStarted))
+            throw new InvalidOperationException("The journal state does not permit a conditional restoration attempt.");
+
+        return AppendEvent(entry with { State = JournalOperationState.RestorationMayHaveStarted },
+            "RestorationArmed", message);
+    }
+
+    public OperationJournalEntry MarkRestoredVerified(OperationJournalEntry entry, string message) =>
+        MarkFromState(entry, JournalOperationState.RestorationMayHaveStarted,
+            JournalOperationState.RestoredVerified, "RestoredVerified", message);
+
+    public OperationJournalEntry MarkNoChangeRequired(OperationJournalEntry entry, string message) =>
+        MarkFromState(entry, JournalOperationState.SnapshotsCaptured,
+            JournalOperationState.NoChangeRequired, "NoChangeRequired", message);
+
+    /// <summary>Records a conflict only when the caller has evidence that no write was issued.</summary>
+    public OperationJournalEntry MarkConflict(OperationJournalEntry entry, string message)
+    {
+        if (entry.State is not (JournalOperationState.Planned or JournalOperationState.ConsentRecorded or
+            JournalOperationState.SnapshotsCaptured or JournalOperationState.MutationMayHaveStarted or
+            JournalOperationState.RestorationMayHaveStarted or JournalOperationState.MutationVerified or
+            JournalOperationState.Failed or JournalOperationState.Interrupted))
+            throw new InvalidOperationException("The journal state does not permit a no-write conflict result.");
+
+        var state = entry.State is JournalOperationState.Planned or JournalOperationState.ConsentRecorded or
+            JournalOperationState.SnapshotsCaptured
+            ? JournalOperationState.Conflict
+            : entry.State;
+        return AppendEvent(entry with { State = state }, "Conflict", message);
+    }
+
+    /// <summary>Records an access or read failure for which the adapter confirms no setter was called.</summary>
+    public OperationJournalEntry RecordPreWriteFailure(OperationJournalEntry entry, string message)
+    {
+        if (entry.State is JournalOperationState.SimulationCompleted or JournalOperationState.RestoredVerified or
+            JournalOperationState.NoChangeRequired or JournalOperationState.Conflict)
+            throw new InvalidOperationException("A terminal journal operation cannot receive a new pre-write failure.");
+        return AppendEvent(entry, "WriteNotAttempted", message);
+    }
+
     public OperationJournalEntry MarkSimulationCompleted(OperationJournalEntry entry)
     {
+        if (entry.DataOrigin != JournalDataOrigin.SyntheticDemonstration)
+            throw new InvalidOperationException("Only an explicitly synthetic demonstration can be marked as simulated.");
+        if (entry.Snapshots.Count > 0 || entry.State == JournalOperationState.SnapshotsCaptured)
+            throw new InvalidOperationException("A captured real-operation plan cannot be converted into a simulation result.");
         if (entry.State == JournalOperationState.SimulationCompleted)
             throw new InvalidOperationException("A simulation result has already been recorded.");
 
-        if (entry.State is JournalOperationState.MutationMayHaveStarted or
-            JournalOperationState.Interrupted or
-            JournalOperationState.Failed)
+        if (entry.State is JournalOperationState.MutationMayHaveStarted or JournalOperationState.MutationVerified or
+            JournalOperationState.RestorationMayHaveStarted or JournalOperationState.RestoredVerified or
+            JournalOperationState.NoChangeRequired or JournalOperationState.Conflict or
+            JournalOperationState.Interrupted or JournalOperationState.Failed)
             throw new InvalidOperationException("A real-operation state cannot be replaced by a simulation result.");
 
         return AppendEvent(
@@ -213,10 +271,12 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        if (entry.State == JournalOperationState.SimulationCompleted)
-            return new(JournalResumeStatus.AlreadyFinished, "A simulação terminou; não há execução para retomar.", false);
+        if (entry.State is JournalOperationState.SimulationCompleted or JournalOperationState.MutationVerified or
+            JournalOperationState.RestoredVerified or JournalOperationState.NoChangeRequired or JournalOperationState.Conflict)
+            return new(JournalResumeStatus.AlreadyFinished, "A operação registrada terminou; nenhuma ação será repetida automaticamente.", false);
 
-        if (entry.State is JournalOperationState.MutationMayHaveStarted or JournalOperationState.Interrupted or JournalOperationState.Failed)
+        if (entry.State is JournalOperationState.MutationMayHaveStarted or JournalOperationState.RestorationMayHaveStarted or
+            JournalOperationState.Interrupted or JournalOperationState.Failed)
             return new(JournalResumeStatus.ManualReviewRequired,
                 "Pode ter havido uma operação real. Exige revisão manual; o app não reaplica nem reverte automaticamente.", false);
 
@@ -253,7 +313,7 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
         string eventType,
         string reason)
     {
-        if (entry.State != JournalOperationState.MutationMayHaveStarted)
+        if (entry.State is not (JournalOperationState.MutationMayHaveStarted or JournalOperationState.RestorationMayHaveStarted))
             throw new InvalidOperationException("Only an armed operation can be marked failed or interrupted.");
 
         return AppendEvent(entry with { State = state }, eventType, reason);
@@ -278,6 +338,19 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
         var events = entry.Events.Append(new JournalEvent(eventType, DateTimeOffset.UtcNow, message)).ToArray();
         return entry with { Events = Array.AsReadOnly(events) };
     }
+
+    private static OperationJournalEntry MarkFromState(
+        OperationJournalEntry entry,
+        JournalOperationState expected,
+        JournalOperationState next,
+        string eventType,
+        string message)
+    {
+        if (entry.State != expected)
+            throw new InvalidOperationException($"Journal state {entry.State} cannot transition to {next}.");
+        return AppendEvent(entry with { State = next }, eventType, message);
+    }
+
 }
 
 public static class OperationRecoveryEvaluator
@@ -298,7 +371,9 @@ public static class OperationRecoveryEvaluator
 
         if (entry.State is JournalOperationState.Planned or
             JournalOperationState.ConsentRecorded or
-            JournalOperationState.SnapshotsCaptured)
+            JournalOperationState.SnapshotsCaptured or
+            JournalOperationState.Conflict or
+            JournalOperationState.NoChangeRequired)
         {
             return new(
                 RecoveryAssessmentStatus.NoMutationRecorded,

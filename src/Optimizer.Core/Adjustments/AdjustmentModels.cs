@@ -21,24 +21,27 @@ public enum AdjustmentRiskLevel
 
 public enum AdjustmentAvailability
 {
-    SimulationOnly,
-    BlockedExperimental
+    SimulationOnly = 0,
+    BlockedExperimental = 1,
+    RequiresSpecificApproval = 2
 }
 
 public enum CompatibilityStatus
 {
-    SimulationSupported,
-    Blocked,
-    Incompatible,
-    Unknown
+    SimulationSupported = 0,
+    Blocked = 1,
+    Incompatible = 2,
+    Unknown = 3,
+    ReviewSupported = 4
 }
 
 public enum PlanItemStatus
 {
-    ReadyForSimulation,
-    Blocked,
-    Incompatible,
-    UnknownAdjustment
+    ReadyForSimulation = 0,
+    Blocked = 1,
+    Incompatible = 2,
+    UnknownAdjustment = 3,
+    ReadyForExplicitApproval = 4
 }
 
 public enum AdjustmentSimulationOutcome
@@ -79,6 +82,7 @@ public sealed record PlatformDescriptor(
 public sealed record CompatibilityAssessment(
     CompatibilityStatus Status,
     bool CanSimulate,
+    bool CanReview,
     string Reason);
 
 public sealed record AdjustmentPlanItem(
@@ -104,6 +108,9 @@ public sealed record AdjustmentPlan(
     public bool CanSimulate =>
         Items.Count > 0 &&
         Items.All(item => item.Status == PlanItemStatus.ReadyForSimulation);
+
+    public bool CanAcceptConsent => Items.Count > 0 &&
+        Items.All(item => item.Status is PlanItemStatus.ReadyForSimulation or PlanItemStatus.ReadyForExplicitApproval);
 
     // Real application is deliberately unavailable until a separately validated implementation exists.
     public bool CanApply => false;

@@ -2,12 +2,12 @@
 
 ## Aplicação e privilégios
 
-- `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos, VIDEOIDLE e operações AC/DC do modo de energia configurado.
-- `Optimizer.Windows` consulta WMI e implementa adaptadores Win32 PowrProf. Criar os adaptadores não chama setters.
+- `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos, VIDEOIDLE, operações AC/DC e plano/captura/operação condicional de prioridade de processo.
+- `Optimizer.Windows` consulta WMI, implementa adaptadores Win32 PowrProf e enumera/processa prioridade pelo `System.Diagnostics.Process`. Criar esses adaptadores não chama setters.
 - `Optimizer.Windows` lê as interfaces de rede por `NetworkInterface.GetAllNetworkInterfaces`; resolução DNS e ICMP ficam em métodos assíncronos e são chamados somente pelo botão de teste.
 - `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. Leitura/captura real de VIDEOIDLE e modo de energia só ocorre após clique explícito. A UI do modo de energia tem comandos de aplicação/restauração que começam desabilitados e exigem consentimento, autorização separada e frase exata.
 - As políticas de mutação real negam por padrão. Não há serviço, worker elevado, tarefa privilegiada ou daemon.
-- `Optimizer.Core.Tests` executa cenários com adaptador/storage falsos; o harness não chama PowrProf.
+- `Optimizer.Core.Tests` executa cenários com adaptador/storage falsos; o harness não chama PowrProf nem prioridade de processo real.
 
 ## Simulação e operação real
 
@@ -44,6 +44,18 @@ O inventário gráfico reutiliza `WmiComputerInventoryService` e sua consulta ex
 Preferência por aplicativo e uso corrente são estados diferentes. O Windows documenta a página de Configurações `ms-settings:display-advancedgraphics` para consultar e configurar a preferência por aplicativo em dispositivos compatíveis. O app oferece essa página por clique e não grava tal preferência. Não foi validada uma API pública e estável para ler no app a preferência persistida de outros executáveis. A API DXGI `IDXGIFactory6::EnumAdapterByGpuPreference` ordena os adaptadores para a preferência escolhida pelo próprio app que cria o dispositivo Direct3D; ela não lê a configuração de Preferência gráfica de outro aplicativo.
 
 Para observar qual motor gráfico está sendo usado por processo, o app oferece abrir o Gerenciador de Tarefas. A coluna **GPU Engine** é uma observação corrente, dependente de atividade, versão do Windows e driver; não é a preferência configurada nem uma promessa de uso constante. Este produto não coleta telemetria GPU programaticamente e não altera escolha gráfica. Não acessa chaves privadas do Registro.
+
+## Diagnóstico e prioridade individual de processo
+
+`WindowsProcessPriorityAdapter` usa `System.Diagnostics.Process.GetProcesses`, `StartTime`, `MainModule` quando acessível e `PriorityClass`. Cada linha preserva falhas de acesso, leitura parcial, término e ausência. `MainModule` pode falhar por acesso/permissão, processo encerrado ou bitness; caminho indisponível aparece como tal. A identidade de uma operação é PID + instante de criação UTC + caminho se lido. Nome do processo é só rótulo.
+
+Para escrever, o adaptador cria um objeto `Process`, lê criação/identidade e prioridade e usa o mesmo objeto para o setter. A leitura de criação obtém o handle da instância; o setter nunca reabre o PID depois dessa verificação. Se o processo termina, outro processo recebe o mesmo número ou a identidade/estado mudam, a operação recusa a escrita. Após setter, uma nova inspeção exige a mesma identidade e confirma a prioridade. Falha de verificação deixa o diário em estado potencialmente mutado para revisão manual, sem rollback automático.
+
+O módulo constrói um `AdjustmentPlan` com um item e a consequência específica, registra consentimento no `PlanConsentService` e snapshot no `JsonOperationJournalStore` existente em `%LOCALAPPDATA%\CalixtoOptimizer\History`. O valor anterior, alvo, identidade, plano e impressão digital da captura são persistidos. Aplicação é permitida no serviço somente por uma `IProcessPriorityMutationPolicy` que valide um recibo de operação distinto do consentimento; a política padrão do app nega tudo. A classe Tempo real é mostrada apenas se já for o estado lido, nunca aparece como destino e esse estado bloqueia uma nova operação. Mudanças em lote não são representadas.
+
+A classe de processo afeta agendamento de CPU; ela não garante melhora de FPS e pode prejudicar a resposta de outros processos. Classe Alta exige aviso de que pode usar quase todo o tempo de CPU. O direito documentado para `SetPriorityClass` é `PROCESS_SET_INFORMATION`; o app não solicita elevação automática. A API `MainModule` tem limites de permissão/bitness documentados, por isso o caminho é opcional para diagnóstico e obrigatório para correspondência somente se foi capturado inicialmente.
+
+O teste descartável em `tests/Optimizer.ProcessProbe` apenas exibe PID, instante de criação e caminho e espera Enter. O probe foi compilado, não executado. Testes de aplicação, falha, conflito, identidade, falha de disco e restauração usam adaptador falso. Não há verificação de setter real neste marco.
 
 ## Dependências e evidência técnica
 

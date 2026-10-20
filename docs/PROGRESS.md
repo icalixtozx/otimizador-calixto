@@ -358,3 +358,61 @@ Continuação direta de `6138ef27d69c3ac305f32e1bbb515f29433ed757`; árvore esta
 - Revisar visualmente a página Rede e testar cancelar/resultado parcial manualmente; conferir os novos atalhos GPU sem abrir janela nesta validação; outro PC permanece pendente.
 - Manter como pendentes: aplicação/reversão reais de energia, VIDEOIDLE, módulos de Registro/políticas/processos, configuração de rede, leitura programática confiável da preferência GPU, telemetria GPU do produto, drivers assistidos, validação por hardware e recuperação prática.
 - Próxima menor entrega prevista após build/teste: não escrever preferências GPU. Fazer uma validação visual manual curta da visão geral (inventário/atalhos) e da página Rede; depois retomar o próximo módulo funcional que o plano prioriza, mantendo ajustes reais bloqueados por consentimento e validação individual.
+
+## 18. Módulo de processos e prioridade individual — 2026-10-19
+
+Continuação do commit `4e359a10258ed648da68c2da1c30765e405f5dd3`; o branch estava limpo antes desta etapa. As alterações anteriores de compatibilidade/consentimento/diário foram necessárias para aceitar um plano real revisável sem transformar consentimento em autorização de escrita.
+
+### O que foi implementado
+
+- `WindowsProcessPriorityAdapter` enumera processos e tenta ler nome, PID, instante de criação, caminho do executável quando acessível e `PriorityClass`. A UI diferencia disponível, parcial, acesso negado, encerrado, ausente e falha; caminho inacessível não apaga os demais campos lidos.
+- A identidade persistida e revalidada é PID + criação UTC + caminho quando disponível na captura. Nome é apenas rótulo. Se processo acaba ou PID passa a outra instância, aplicação e restauração param; nunca buscam um novo alvo só pelo PID.
+- Um alvo por plano. Os destinos são Ocioso, Abaixo do normal, Normal, Acima do normal e Alta. Tempo real não aparece no seletor nem é aceito como alvo; uma prioridade atual Tempo real bloqueia a preparação.
+- O plano usa `AdjustmentPlanService`/`ProfilePlanService`, consequência por processo e consentimento existente. `CaptureAsync` grava o plano, recibo e estado anterior no `JsonOperationJournalStore` já usado pelo app em `%LOCALAPPDATA%\CalixtoOptimizer\History`.
+- Aplicação exige política de mutação e confirmação de operação separadas do consentimento. A política padrão injetada no app nega tudo e a tela não oferece setter. Serviço tem caminhos de aplicação/verificação e restauração condicional para testes/injeção futura; falhas ou conflito geram eventos no diário. Um resultado incerto nunca aciona rollback automático.
+- O enum do diário preserva os valores numéricos antigos 0–6 para não reinterpretar histórico anterior. Novos estados foram acrescentados depois desses valores.
+- Adicionado `tests/Optimizer.ProcessProbe`, um pequeno processo descartável que mostra PID/criação/caminho e espera Enter. Não define prioridade, não foi lançado nem testado em execução real.
+
+O mecanismo suportado é `System.Diagnostics.Process.PriorityClass`, que representa classe de escalonamento da CPU. O setter documentado requer `PROCESS_SET_INFORMATION`; acesso por usuário/administrador não é presumido. Prioridade maior não garante FPS; Classe Alta pode consumir quase todo o tempo de CPU e causar atraso em outros aplicativos. O catálogo e as fontes estão em `docs/INITIAL-CATALOG.md`; arquitetura em `docs/ARCHITECTURE.md`.
+
+### Arquivos alterados
+
+- Núcleo: `src/Optimizer.Core/Processes/ProcessPriorityModels.cs`, `ProcessPriorityOperationService.cs`.
+- Adaptador Windows: `src/Optimizer.Windows/WindowsProcessPriorityAdapter.cs`.
+- UI: `src/Optimizer.App/ViewModels/ProcessesPageViewModel.cs`, `MainWindowViewModel.cs`, `MainWindow.xaml`, `Views/ProcessesPage.xaml`, `Views/ProcessesPage.xaml.cs`; histórico comum em `ProfilesPageViewModel.cs` e `Views/ProfilesPage.xaml`.
+- Motor compartilhado: `AdjustmentModels.cs`, `AdjustmentCatalog.cs`, `AdjustmentPlanService.cs`, `PlanConsentService.cs`, `OperationJournalModels.cs`.
+- Probe: `tests/Optimizer.ProcessProbe/Optimizer.ProcessProbe.csproj`, `Program.cs`; solução `CalixtoOptimizer.sln`.
+- Testes e docs: `tests/Optimizer.Core.Tests/Program.cs`, `README.md`, `docs/INITIAL-CATALOG.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, este arquivo.
+
+### Build, testes, consulta real e validação visual
+
+- Execuções em PowerShell no diretório `%USERPROFILE%\Downloads\CalixtoOptimizer`, chamando explicitamente `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`; versão `10.0.402`. `global.json` preservado em `10.0.100` com `latestFeature`.
+- Build final `dotnet build CalixtoOptimizer.sln --configuration Release`: êxito, todos os projetos incluindo WPF e probe, 0 avisos e 0 erros.
+- Harness `dotnet run --project tests/Optimizer.Core.Tests/Optimizer.Core.Tests.csproj --configuration Release --no-build`: **72/72** checks aprovados. Novos cenários exclusivamente simulados cobrem identidade/plano/consentimento, acesso negado, processo encerrado, conflito de prioridade, PID reutilizado entre leituras, PID reutilizado durante restauração, persistência falha antes do setter, falha de diário após setter simulado sem rollback, restauração condicional, conflito externo e ausência de escrita com a política padrão.
+- Uma execução intermediária dos testes apontou uma expectativa incorreta do estado de recuperação de uma captura sem mutação; a expectativa foi corrigida e a suíte completa passou depois. Uma tentativa intermediária de build não encontrou `System.IO` no ViewModel; o `using` foi corrigido antes do build final.
+- **Dados reais:** nenhum processo foi enumerado neste marco; nenhum PID, caminho ou prioridade real foi coletado. Nenhum setter de prioridade foi chamado. O probe foi compilado, não iniciado.
+- **Validação visual:** pendente. A página não foi aberta nesta sessão para evitar assumir o controle do mouse/teclado. Checklist manual curto está em `docs/TESTING.md`.
+- Não foram gerados ZIP/instalador nem pacotes de distribuição. Não houve alterações no Windows.
+
+### Matriz atualizada de todas as fases oficiais
+
+Esta tabela substitui as classificações anteriores onde houve progresso e conserva pendências que não pertencem a este marco.
+
+| Fase oficial | Diagnóstico | Configuração / plano | Execução real | Estado e evidência |
+| --- | --- | --- | --- | --- |
+| 0 — Ambiente e decisões | Parcial: SDK/build desta máquina identificados. | Parcial: regras/versões registradas. | Parcial: apenas o ambiente local validado. | **Parcial**; segundo PC e origem reproduzível de artefatos anteriores pendentes. |
+| 1 — Inventário de sistema, dispositivos e drivers | Concluído localmente no escopo consultado, inclusive planos de energia, PnP e inventário de drivers. | Não aplicável para diagnóstico. | Somente leitura verificada no computador atual. | **Concluído localmente**; outros OEMs/Windows e comparação externa de versões pendentes. |
+| 2 — Catálogo, compatibilidade, perfis, consentimento e diário | Parcial: leitura/previews reais em alguns módulos. | Concluído em simulação e planos revisáveis de modo de energia/processos; consentimento específico persistido. | Bloqueada por padrão; simulação não escreve. | **Parcial** como motor geral; catálogo real pequeno e recuperação automática permanece indisponível. |
+| 3 — Primeiro ajuste reversível | Leitura/captura de VIDEOIDLE e modo configurado de energia foram validadas localmente. | Parcial: consequência, snapshot, aplicação/reversão condicional codificados. | Bloqueada; nenhuma alteração de energia executada. | **Parcial**; teste de escrita real e recuperação prática pendentes. |
+| 4 — Energia, Registro, políticas, processos e rede | Energia/rede já têm diagnóstico; processos agora têm leitura integrada, mas não foram consultados ao vivo nesta entrega; Registro/políticas não têm diagnóstico equivalente. | Processos têm plano individual/captura no motor; energia/modo ainda bloqueados; Registro/políticas sem plano implementado. | Processos e energia bloqueados por padrão; Registro/políticas/rede não têm execução. | **Parcial**; o módulo de processos está validado somente por fake; candidatos de Registro/política seguem indisponíveis. |
+| 5 — GPU compatível | WMI reporta controlador; Configurações nativas encaminham preferência/uso; integração programática de preferência não disponível. | Não há configuração pelo Calixto. | Nenhuma. | **Parcial como diagnóstico/encaminhamento**, sem integração de preferência ou telemetria de uso. |
+| 6 — Pós-formatação, fonte e instalação assistida de drivers/programas | Identificação de drivers localmente verificada. | Seleção de pacotes oficiais/planos de instalação não iniciada. | Nenhum driver/programa instalado. | **Parcial**; instalação assistida, seleção de programas e validação em outro PC pendentes. |
+| 7 — ZIP, instalador e recuperação | Hashes de pacotes anteriores registrados. | Pacotes 0.5/0.6 existem; pacote atual não foi gerado. | Instalar/atualizar/desinstalar versões anteriores testado neste PC; build atual não testado pelo instalador. | **Parcial**; recuperação prática ampla e outro PC pendentes. |
+| 8 — Controles específicos por hardware | Não iniciado. | Sem integração fabricante/firmware validada. | Não autorizada e indisponível. | **Não iniciado**; nenhum firmware/tensão/frequência escrito. |
+
+### Pendências preservadas e próximo passo
+
+- Validar visualmente Rede, atalhos nativos de GPU e agora Processos com checklist manual; não houve inspeção visual nova.
+- Fazer um teste real futuro com o probe é uma etapa separada. O próximo passo é abrir o probe, capturar a identidade e ler a prioridade atual somente para revisão; depois será solicitada aprovação específica para uma alteração e uma restauração condicionais. Até essa aprovação, a política bloqueada permanece.
+- Continuam pendentes: mutações reais de energia/VIDEOIDLE; Registro; políticas; ajuste de rede; leitura programática de preferência/telemetria GPU; drivers/programas assistidos; benchmark de desempenho; instalações de pacotes atuais; recuperação em outro PC.
+- Próximo marco funcional sugerido após revisão visual: testar o fluxo com o probe apenas em leitura e então submeter a solicitação de aprovação do primeiro teste real de prioridade. Não iniciar outro ajuste de desempenho nem gerar pacote antes de revisar este marco.

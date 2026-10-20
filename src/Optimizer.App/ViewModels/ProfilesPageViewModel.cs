@@ -52,7 +52,8 @@ public sealed record OperationHistoryItem(
     string Date,
     string DataLabel,
     string Recovery,
-    string SnapshotNotice);
+    string SnapshotNotice,
+    string LatestEvent);
 
 public sealed class ProfilesPageViewModel : ObservableObject
 {
@@ -303,7 +304,8 @@ public sealed class ProfilesPageViewModel : ObservableObject
                     assessment.Message,
                     entry.DataOrigin == JournalDataOrigin.SyntheticDemonstration || entry.Snapshots.Count == 0
                         ? "Sem snapshots. Isto não é backup do Windows."
-                        : $"{entry.Snapshots.Count} snapshot(s) registrados; não são backup restaurável do Windows."));
+                        : $"{entry.Snapshots.Count} snapshot(s) registrados; não são backup restaurável do Windows.",
+                    entry.Events.LastOrDefault()?.Message ?? "Sem evento no diário."));
             }
         }
         catch (Exception exception)
@@ -467,6 +469,11 @@ public sealed class ProfilesPageViewModel : ObservableObject
         JournalOperationState.ConsentRecorded => "Consentimento registrado",
         JournalOperationState.SnapshotsCaptured => "Snapshots registrados",
         JournalOperationState.MutationMayHaveStarted => "Operação possivelmente iniciada",
+        JournalOperationState.MutationVerified => "Operação verificada",
+        JournalOperationState.RestorationMayHaveStarted => "Restauração possivelmente iniciada",
+        JournalOperationState.RestoredVerified => "Restauração verificada",
+        JournalOperationState.NoChangeRequired => "Nenhuma escrita necessária",
+        JournalOperationState.Conflict => "Conflito sem escrita",
         JournalOperationState.Failed => "Falhou",
         JournalOperationState.Interrupted => "Interrompido",
         JournalOperationState.SimulationCompleted => "Simulação concluída",

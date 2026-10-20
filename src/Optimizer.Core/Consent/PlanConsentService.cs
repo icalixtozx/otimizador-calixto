@@ -46,7 +46,7 @@ public sealed class PlanConsentService
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(decisionsByAdjustmentId);
 
-        if (!plan.CanSimulate)
+        if (!plan.CanAcceptConsent)
             throw new InvalidOperationException("Consent cannot be recorded for a blocked or incomplete plan.");
 
         var requiredIds = plan.Items.Select(item => item.AdjustmentId).ToHashSet(StringComparer.Ordinal);
@@ -85,7 +85,7 @@ public sealed class PlanConsentService
             return new(ConsentValidationStatus.StalePlan, "O consentimento pertence a outro plano ou a uma versão anterior.");
         }
 
-        if (!plan.CanSimulate || receipt.Decisions is null || receipt.Decisions.Count != plan.Items.Count || string.IsNullOrWhiteSpace(receipt.ReceiptFingerprint))
+        if (!plan.CanAcceptConsent || receipt.Decisions is null || receipt.Decisions.Count != plan.Items.Count || string.IsNullOrWhiteSpace(receipt.ReceiptFingerprint))
             return new(ConsentValidationStatus.InvalidReceipt, "O recibo não corresponde aos itens elegíveis do plano.");
 
         for (var index = 0; index < plan.Items.Count; index++)

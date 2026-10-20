@@ -1,6 +1,6 @@
 # Catálogo inicial de candidatos
 
-Este catálogo é uma triagem técnica, não uma lista de otimizações habilitadas. O modo de energia configurado e VIDEOIDLE têm adaptadores técnicos distintos; aplicação real continua bloqueada. As áreas processos, Registro, políticas e rede permanecem **indisponíveis**: não existe uma alteração universal com benefício comprovado que justifique uma escrita genérica.
+Este catálogo é uma triagem técnica, não uma lista de otimizações habilitadas. O modo de energia configurado e VIDEOIDLE têm adaptadores técnicos distintos; aplicação real continua bloqueada. Processos tem apenas um fluxo individual de prioridade documentado e ainda bloqueado por padrão. Registro e políticas não têm alterações habilitadas; não existe um ajuste universal com benefício comprovado que justifique uma escrita genérica.
 
 ## Energia — modo configurado pelo usuário (AC/DC; Windows 11)
 
@@ -37,6 +37,19 @@ Fontes: [Display idle timeout](https://learn.microsoft.com/en-us/windows-hardwar
 - **Estado:** indisponível. A documentação do Windows descreve que encerramento forçado finaliza threads e pode comprometer dados globais de DLL; esse risco impede tratá-lo como limpeza universal.
 
 Fonte: [TerminateProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess).
+
+## Processos — prioridade individual (experimental, execução bloqueada)
+
+- **Objetivo/mecanismo:** permitir revisar e, após aprovação futura específica, alterar a classe de prioridade de um único processo. Usa `System.Diagnostics.Process.PriorityClass`, que mapeia a classe de agendamento de CPU do Windows. Não muda frequência, tensão, prioridade de GPU nem potência do plano; não há mecanismo para prometer FPS.
+- **Compatibilidade:** processo local no Windows. O item de plano declara a arquitetura do aplicativo. O processo precisa estar em execução e ser identificado por PID e instante UTC de criação; caminho do executável entra na identidade quando acessível. Nome, sozinho, nunca é identidade. Caminho pode ficar indisponível por permissões, bitness ou encerramento; nesse caso o aplicativo marca leitura parcial/negada e bloqueia a preparação ou escrita quando não pode validar a identidade capturada.
+- **Consequências:** a classe afeta agendamento de CPU, não necessariamente I/O, memória ou GPU. Prioridade maior não garante FPS e pode prejudicar aplicativos em primeiro plano; a classe Alta pode consumir quase todo o tempo disponível da CPU. Classe Tempo real não é oferecida nem aceita como destino. A alteração deixa de valer quando o processo termina.
+- **Privilégios:** `SetPriorityClass` requer o direito `PROCESS_SET_INFORMATION` no handle do alvo. O aplicativo não presume que execução como usuário comum ou administrador garanta esse direito; processos protegidos, de outro usuário ou de sistema podem responder com acesso negado. Não existe elevação automática nem worker elevado.
+- **Captura/reversão:** consentimento por consequência e snapshot real são registrados no diário genérico local antes da alteração. Antes do setter, o adaptador obtém um handle para o processo e verifica criação, caminho disponível e prioridade nesse mesmo objeto. A reversão só tenta o valor anterior se o PID ainda tiver a identidade capturada e a prioridade atual ainda corresponder ao valor proposto. PID encerrado/reutilizado, estado externo diferente ou persistência falha encerram a operação e exigem revisão; não há rollback automático após resultado incerto. O snapshot não é backup do Windows.
+- **Avaliação:** comparar a classe solicitada e lida de volta para a mesma identidade. Uma avaliação de desempenho exigiria benchmark reproduzível da aplicação e frametime/CPU sob carga equivalente em ciclos A/B; nenhuma medição ou ganho é alegado neste marco.
+- **Estado deste marco:** diagnóstico, leitura de prioridade, seleção individual, plano, consentimento e captura integrada ao histórico implementados. Aplicação e restauração existem atrás de política que nega por padrão; a interface não chama setters. Casos de escrita/restauração foram exercitados apenas com adaptadores falsos. Nenhum processo real teve prioridade consultada neste marco; nenhum setter foi chamado. Validação visual ainda pendente.
+- **Teste descartável preparado:** `tests/Optimizer.ProcessProbe` imprime PID, horário de criação e caminho, aguarda Enter e nunca altera a própria prioridade. Foi compilado na solução, mas não foi iniciado. Seu baseline precisa ser lido no momento de um futuro teste; este repositório não presume que o valor inicial seja Normal.
+
+Fontes oficiais: [Process.PriorityClass (.NET)](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.priorityclass), [SetPriorityClass e direito PROCESS_SET_INFORMATION](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setpriorityclass), [Process.StartTime](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.starttime?view=net-10.0) e [Process.MainModule e limites de acesso](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.mainmodule?view=net-10.0).
 
 ## Registro — sem chave candidata (indisponível)
 
