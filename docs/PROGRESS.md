@@ -886,3 +886,45 @@ Permanecem no checklist manual: abrir Drivers e conferir candidatos/análise/pr�
 ### Candidato de pacote para aprovação futura
 
 Uma primeira instalação pequena para possível teste, ainda não aprovada nem executada: **7-Zip**, ID `7zip.7zip`, origem `winget`, manifest x64 revisado `26.04`, licença LGPL-2.1, escopo declarado `machine` e elevação própria declarada pelo manifest. O teste futuro deve primeiro confirmar metadata/installer/hash atuais com WinGet, apresentar o texto vigente dos acordos de origem e pacote, explicar UAC/escopo e eventual reinício, conferir se já está identificado localmente e solicitar autorização específica para instalar apenas esse pacote. O estado desta etapa é apenas candidato.
+
+## 32. Revalidação visual e de metadata WinGet — 2026-10-20
+
+Continuação a partir do commit `7994bf627852e3300e0165d4cbe110eeed70238e`. Nenhum pacote foi gerado; nenhum programa/driver foi instalado; nenhuma fonte WinGet foi alterada e nenhum acordo foi aceito.
+
+### Inspeção visual e leitura local
+
+- A tela Programas foi aberta da DLL Release do repositório usando o SDK .NET 10 local. A identidade da janela foi verificada por HWND → PID `25128`, `dotnet.exe` do SDK e command line apontando à DLL atual. A lista do helper mostrava outra cópia byte-idêntica do `dotnet.exe`; o SHA-256 das duas cópias era igual e o proprietário real do HWND foi confirmado pelo PID antes do uso visual.
+- Navegação, catálogo, seleção múltipla (7-Zip + VLC), revisão por pacote (origem, ação, escopo, licença/acordos, UAC, reinício e aviso de snapshot), leitura e cartões de resultado foram vistos. A consulta local leu 89 entradas sem avisos. O botão de bloqueio mostrou `BLOQUEADA` nos dois itens; nenhuma chamada ao runner ocorreu e não havia processo `winget.exe` antes/depois.
+- Consulta real do Registro: `7-Zip 26.04 (x64)`, publicador `Igor Pavlov`, versão `26.04`, HKLM. VLC não foi encontrado nas entradas Uninstall das visões/hives consultadas; isso continua sendo “não identificado”, não prova de ausência.
+- A tela da DLL do commit `7994bf6` mostrava erroneamente 7-Zip como não identificado porque não reconhecia o nome exato observado. `ProgramCatalog` agora inclui a variante observada e o teste de correspondência foi acrescentado. A interface dessa correção ainda não foi recompilada/reaberta.
+
+### WinGet: configuração, cache e pacote atual
+
+- `winget source list --name winget`: origem padrão `Microsoft.PreIndexed.Package`, URL `https://cdn.winget.microsoft.com/cache`, confiança `Trusted|StoreOrigin`, `Explicit=false`, última atualização registrada `2026-09-30 22:58:55`. `source export` confirmou a mesma configuração. A configuração existe e coincide com a origem padrão documentada; não há evidência de URL/nome ausente ou alterado.
+- Os logs WinGet de 16:57 e 16:58 mostram 404 `0x80190194` ao obter arquivo da origem. Em uma tentativa posterior, às 17:19, o log registrou outro erro (`0x87E80034`, `MsixvcStagingSession::GetManifestReader`). `winget show` alertou que a atualização falhou mas retornou metadata em cache `7zip.7zip 26.03`, código de saída 0. O índice local está desatualizado em relação ao manifest público; disponibilidade atual pelo CDN não está confirmada.
+- A API GitHub estava acessível e confirmou o manifesto público comunitário 7-Zip `26.04` (2026-10-06), x64 EXE, escopo `machine`, `elevatesSelf`, URL `https://www.7-zip.org/a/7z2604-x64.exe` e hash publicado `D54BF805F9F3704D1E8DB2FA3498AE7EF2DF0312B40B558E7C71C734430A665D`. Hash não calculado localmente; instalador não foi baixado. GitHub acessível não prova a atualização do CDN WinGet.
+- Correção proposta, não executada: `winget source update --name winget --disable-interactivity --verbose-logs`, sem aceite de acordo e sem alterar/remover/recriar a origem. Solicitar aprovação antes de tentar; em caso de falha, preservar o log e reavaliar antes de reparar App Installer.
+
+### Testes e build após a correção de detecção
+
+- Build Core.Tests Release com SDK `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`: sucesso, 0 avisos/erros; **121/121 checks simulados aprovados**. A verificação nova do alias exato está dentro do caso de correspondência existente e passou. Nenhum WinGet ou instalação foi iniciado pelo harness.
+- O build completo Release tentou copiar Core/Windows para `Optimizer.App\bin` enquanto o próprio app PID `25128` carregava essas DLLs; falhou após retries (20 avisos, 4 erros). Nenhum processo foi encerrado. Conforme a instrução anterior do usuário, não encerrei a janela para forçar o build. O build normal e a validação visual do código novo ficam pendentes até o usuário fechar a janela.
+
+### Procedimento candidato e estado do plano
+
+7-Zip não é um teste de instalação limpa neste PC: a versão atual `26.04` já aparece no Registro. O único candidato do catálogo não identificado localmente é VLC `VideoLAN.VLC` `3.0.24`; manifesto atual lista x64 EXE/MSI, ambos machine/elevate-self, com hashes publicados. O teste dependerá primeiro da origem WinGet voltar a servir metadata atual. Se aprovado em etapa posterior: mostrar/revisar os acordos atuais, instalar só VLC interativamente, conferir código/versão/publicador/executável e inventário; uma remoção seria feita separadamente em Configurações > Aplicativos. O app não oferece desinstalação nem rollback, e configurações/associações do usuário podem permanecer. Nenhuma instalação foi aprovada ou feita.
+
+Drivers assistidos continuam **parciais**: as APIs de staging/associação e recuperação não foram validadas por execução real. Esta etapa valida visualmente apenas a página Programas do build anterior; após fechamento e build, ainda é necessário validar visualmente a correção de reconhecimento. Nenhum pacote novo foi gerado.
+
+## 33. Conclusão do ciclo WinGet/Programas — 2026-10-20
+
+Fechamento da continuação do commit `7994bf627852e3300e0165d4cbe110eeed70238e`. A janela bloqueadora foi fechada pelo usuário; não encerrei processo algum. Não gerei pacotes, não atualizei fontes WinGet, não aceitei acordos e não instalei programas.
+
+- **Build local:** `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` reportou SDK `10.0.402`, Windows x64, runtime `10.0.13`. `build .\CalixtoOptimizer.sln -c Release --no-restore` concluiu com êxito, 0 avisos/0 erros.
+- **Harness simulado:** 121/121 checks passaram, incluindo o novo nome exato observado `7-Zip 26.04 (x64)`. Isto valida o matcher sob teste, não instalação, WinGet, ou comportamento em outro PC.
+- **Inspeção visual do build atual:** iniciei a DLL `src\Optimizer.App\bin\Release\net10.0-windows\Optimizer.App.dll` pelo SDK explícito; caminho, command line e PID da janela foram conferidos antes de usar o helper visual. O alias de executável mostrado pelo helper apontava para uma cópia byte-idêntica do `dotnet.exe` (SHA-256 comparado) e o owner PID do HWND correspondia ao processo validado.
+- A página leu 89 entradas locais, reconheceu 7-Zip como versão `26.04` com correspondência exata do DisplayName/Publisher, e manteve VLC como “não identificado localmente”. Foi possível selecionar ambos. A revisão exibiu origem, intenção, escopo, acordos não aceitos, elevação/permissões, reinício possível e limites do manifesto.
+- O botão de verificação devolveu `BLOQUEADA` para os dois IDs e informou que a política padrão impediu iniciar `winget.exe`; uma consulta de processos confirmou que não havia WinGet ativo. Não foi iniciada instalação.
+- **Consultas reais WinGet/GitHub/Registro** permanecem distintas da inspeção visual e dos testes simulados: a origem configurada e o HTTP 404, a metadata em cache `26.03`, o manifest público `7zip.7zip` `26.04`, e o registro local de 7-Zip `26.04` estão descritos acima. O CDN atual continua não confirmado. Nenhuma atualização da origem foi executada.
+- **Próximo teste real candidato:** VLC `VideoLAN.VLC` `3.0.24`, x64, machine/elevates-self segundo o manifest público, ainda sem correspondência local. Isto não comprova que esteja ausente nem que WinGet possa servir o pacote. Primeiro é necessária aprovação para atualizar a metadata da origem existente e revalidar versão, instalador, hash e acordos atuais. A instalação de VLC exige aprovação específica separada e só prossegue se essas pré-condições passarem. A remoção seria posterior, manual e separadamente aprovada; o app não implementa rollback e resíduos de preferências/associações podem permanecer.
+- A interface continua exibindo `v0.6.0 · Experimental` embora o código validado seja o do HEAD `7994bf6`; essa etiqueta não foi ajustada neste ciclo. Drivers assistidos continuam **parciais**, sem validação real de staging/associação/recuperação.

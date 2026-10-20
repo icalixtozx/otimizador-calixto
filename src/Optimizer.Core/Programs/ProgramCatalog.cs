@@ -55,7 +55,7 @@ public sealed class ProgramCatalog
             "O manifesto revisado declara que o instalador solicita elevação própria; a política/UAC pode pedir credenciais.",
             "Windows Desktop conforme o manifesto aplicável; a compatibilidade precisa ser confirmada novamente pelo WinGet no momento da operação.",
             "O instalador/WinGet pode informar que é necessário reiniciar; nenhum reinício automático é autorizado.",
-            ["7-Zip", "7-Zip 26.04"]),
+            ["7-Zip", "7-Zip 26.04", "7-Zip 26.04 (x64)"]),
         new ProgramPackageDefinition(
             "VideoLAN.VLC", "VLC media player", "VideoLAN", "winget", "3.0.24", new DateOnly(2026, 10, 20),
             "https://github.com/microsoft/winget-pkgs/tree/master/manifests/v/VideoLAN/VLC/3.0.24",

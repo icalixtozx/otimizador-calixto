@@ -49,6 +49,28 @@ Os manifests exatos de `7zip.7zip` 26.04 e `VideoLAN.VLC` 3.0.24 foram lidos dir
 
 Instalação limpa, atualização real do catálogo por WinGet, instalação de pacote, UAC, falha e cancelamento durante instalador, reinício pendente, desinstalação, execução/recuperação real de driver, instalação limpa/desinstalação do Preview atual e teste em outro PC continuam pendentes.
 
+## Revalidação visual e WinGet — 2026-10-20
+
+- **Visual real, DLL do commit 7994bf6:** navegação e catálogo de Programas foram inspecionados; a seleção simultânea de 7-Zip e VLC montou as duas revisões; a leitura consultou 89 entradas locais sem avisos; os cartões individuais terminaram em `BLOQUEADA`. O botão não chamou o runner e não havia `winget.exe` antes nem depois. Nenhuma instalação ocorreu.
+- **Leitura real de instalado:** HKLM contém `7-Zip 26.04 (x64)`, `Igor Pavlov`, versão `26.04`. A UI anterior não o reconheceu porque faltava essa variante de nome exata. Um alias exato e uma asserção foram adicionados; a validação lógica simulada passou. Build WPF e inspeção visual depois dessa correção aguardam o fechamento da janela PID 25128, que mantém DLLs de saída bloqueadas. Não foi encerrada.
+- VLC não apareceu nas entradas Uninstall consultadas em HKLM/HKCU nas visões 32/64. A classificação continua “não identificado”, sem inferir ausência absoluta.
+- **WinGet real, somente consulta:** versão `v1.29.380`; fonte padrão `winget`, `https://cdn.winget.microsoft.com/cache`, trusted, último update registrado 2026-09-30. Logs 16:57/16:58 registram HTTP 404 (`0x80190194`); tentativa 17:19 registra falha MSIX staging `0x87E80034`. `winget show` retornou cache `26.03` mesmo avisando falha de atualização. A API GitHub confirma o manifesto público 7-Zip `26.04`, mas não valida a disponibilidade atual no CDN WinGet.
+- **Harness:** `Optimizer.Core.Tests` Release, SDK 10.0.402: build 0 aviso/erro; 121/121 checks simulados. A verificação nova de `7-Zip 26.04 (x64)` foi incluída no teste de detecção existente. Nenhum runner do harness executa instaladores.
+- **Build solução:** tentativa após a correção falhou porque PID 25128 segurava `Optimizer.Core.dll` e `Optimizer.Windows.dll` em `src/Optimizer.App/bin/Release`; 20 avisos/4 erros após retries. Não reexecutei nem encerrei o processo. Repetir após o usuário fechar a janela.
+- A próxima ação de diagnóstico proposta é atualizar só a metadata existente: `winget source update --name winget --disable-interactivity --verbose-logs`. Não executada; aguarda aprovação. Não usar reset/remove/add, aceitar acordos ou reparar/reinstalar App Installer sem nova revisão.
+- Candidato de teste real posterior: VLC `VideoLAN.VLC` `3.0.24`, x64, machine, elevates-self, ainda não instalado segundo as entradas consultadas. Antes, exigir atualização e revisão de metadata/acordos. Verificação planejada por resultado WinGet e entrada de desinstalação versão/publicador/executável; remoção manual no Configurações > Aplicativos requer aprovação separada e não garante remover preferências/cache/associações. Instalação não aprovada nem executada.
+- Drivers assistidos permanecem **parciais**. Nenhum pacote de distribuição foi gerado nesta validação.
+
+### Resultado final após fechar a janela bloqueadora — 2026-10-20
+
+- O usuário fechou a janela; nenhum processo foi encerrado automaticamente. Com o SDK explícito `.NET 10.0.402`, `dotnet build .\CalixtoOptimizer.sln -c Release --no-restore` passou com **0 avisos/0 erros**. O harness Release passou **121/121 checks simulados**.
+- A versão recém-compilada abriu da DLL Release em `src\Optimizer.App\bin\Release\net10.0-windows`. A identidade do HWND foi cruzada com PID, caminho executável e linha de comando; a cópia de `dotnet.exe` indicada pelo helper visual teve o mesmo SHA-256 que o dotnet usado para iniciar a DLL. A inspeção foi feita somente nessa janela identificada.
+- Na página Programas, o botão de leitura consultou 89 entradas; 7-Zip apareceu como `Instalação identificada · versão 26.04`, com a ressalva visível de que nome/publicador não provam a origem de instalação nem integridade. VLC permaneceu `Não identificado localmente` e a UI avisou que isso não comprova ausência.
+- A seleção múltipla 7-Zip + VLC foi refletida como `Selecionados: 2`. A revisão visual exibiu origem, ação, escopo, termos/licença ainda não carregados/aceitos, permissões/elevação, reinício possível e cautela da metadata datada. O bloqueio foi acionado: resultado por pacote `BLOQUEADA` para ambos; texto informou que nenhuma chamada ao `winget.exe` ocorreu. A lista de processos confirmou nenhum `winget.exe` ativo após a ação. Não houve instalação.
+- A etiqueta visual permanece `v0.6.0 · Experimental`; a inspeção confirma o comportamento do código do HEAD `7994bf6`, mas não corrige a etiqueta nesta entrega.
+- Os 121 checks são simulados. A observação da UI e a leitura do Registro local são validações reais separadas. A consulta do source/log WinGet indicou HTTP 404 durante refresh; o manifest GitHub atual existe, mas isso não comprova disponibilidade no CDN. Nenhuma ação de atualização da origem foi feita.
+- Não houve validação em outro PC nem teste real de instalação/desinstalação. VLC continua apenas candidato para futura aprovação; drivers assistidos continuam **parciais**. Nenhum ZIP/instalador foi gerado nesta etapa.
+
 ## Estado da validação 0.6.0 (2026-10-19)
 
 A seção “Validação pendente” acima descreve o estado inicial e foi superada pelos registros posteriores em docs/PROGRESS.md. As consultas WMI/PowrProf reais, a captura real AC/DC/plano e a reabertura em outro processo estão descritas lá. A execução atual do SDK também está registrada na matriz 0.6: nenhum SDK está instalado neste ambiente, apesar dos builds anteriores documentados.

@@ -2862,6 +2862,11 @@ static void ProgramInstalledDetectionIsConservative()
     Assert(exact.Reasons.Single().Contains("não comprova origem WinGet", StringComparison.Ordinal),
         "registry detection must not claim the package was installed by WinGet");
 
+    var installedX64 = InstalledProgramMatcher.Match(package,
+        new InstalledProgramInventory([new("7-Zip 26.04 (x64)", "Igor Pavlov", "26.04", "computador")], []));
+    Assert(installedX64.Status == InstalledProgramStatus.IdentifiedInstalled && installedX64.Version == "26.04",
+        "the exact x64 DisplayName observed in Windows Programs and Features should be recognized conservatively");
+
     var partialExact = InstalledProgramMatcher.Match(package,
         new InstalledProgramInventory([new("7-Zip", "Igor Pavlov", "26.04", "computador")], ["partial read failure"]));
     Assert(partialExact.Status == InstalledProgramStatus.CheckIncomplete,
