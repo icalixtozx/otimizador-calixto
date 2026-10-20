@@ -163,7 +163,7 @@ Na etapa inicial de 2026-10-19 ainda não havia teste DNS/ICMP real; o teste rea
 - O runner compilou com o SDK local 10.0.402, 0 avisos e 0 erros. Nenhuma compilação completa da solução nem reexecução do harness de 72 testes foi feita nesta etapa. Esses 72 continuam sendo testes simulados.
 - Validação visual da página **Processos** segue pendente; checklist manual acima.
 
-## Registro e políticas — protótipo simulado (2026-10-19)
+## Registro e políticas — protótipo simulado no commit anterior (2026-10-19)
 
 Build e harness foram executados no repositório `%USERPROFILE%\Downloads\CalixtoOptimizer`, em PowerShell, com o SDK explicitamente escolhido `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` (`10.0.402`). `global.json` continua em `10.0.100` com `latestFeature`.
 
@@ -176,6 +176,32 @@ Resultado observado: solução completa (WPF, Core, Windows, testes e probe) com
 
 Os casos de Registro são **simulados**. Nenhuma API do Registro foi chamada pelo harness; o adaptador `WindowsRegistryPreferenceAdapter` apenas foi compilado. Nenhuma chave ou valor real, inclusive de teste, foi criado, alterado ou removido. A tela ainda não integra o protótipo. A visibilidade efetiva no Explorador, permissões reais, edição/build diferente, conflito com gestão corporativa e comportamento em outro PC permanecem pendentes.
 
-### Teste de integração futuro — requer aprovação específica
+### Procedimento de integração planejado naquele commit
 
 Usar uma chave única `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>` e o valor `ProbeValue` (`REG_DWORD`, visão 64 bits). Conferir primeiro que a chave GUID inexiste; criar valor `0`; ler hive/visão/tipo/dado; definir `1`; ler novamente; excluir somente `ProbeValue`; confirmar chave vazia; excluir apenas a chave GUID e confirmar que ela não existe. Se surgir valor/subchave inesperado, parar sem excluir. Os pais compartilhados ficam intactos. O teste valida acesso e leitura/escrita do Registro sob uma chave isolada; não toca `HideFileExt`, não valida UI do Explorador e requer um runner isolado. Não foi executado; autorização para desenvolvimento e testes sem mutação não cobre criar essa chave.
+
+Esse registro descreve o estado anterior. O resultado atualizado está abaixo.
+
+## Registro — teste isolado real e página integrada (2026-10-19)
+
+### Mecanismo de Registro em chave isolada — executado com aprovação
+
+Comando opt-in (cada nova execução precisa de aprovação própria para escrita na chave temporária):
+
+```powershell
+& "$env:LOCALAPPDATA\dotnet-sdk-10.0.402\dotnet.exe" run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build -- --windows-registry-integration
+```
+
+O runner gerou `HKCU\Software\CalixtoOptimizer\IntegrationTests\6e55acf9-2b7e-4581-95fb-3bd3b1f84684`, visão `Registry64`, valor único `ProbeValue`. Confirmou GUID ausente, chave nova vazia, leitura sem valor, criação e leitura de `REG_DWORD 0`, alteração e leitura de `REG_DWORD 1`, remoção apenas do valor e remoção da chave GUID vazia. O processo terminou código 0. A chave-pai `CalixtoOptimizer` e o nó `IntegrationTests` foram criados por não existirem e removidos após confirmar que estavam vazios. Uma consulta posterior confirmou ausência dos dois pais e do GUID. Nenhuma falha ou resíduo foi reportado.
+
+O adaptador do runner é exclusivo do projeto de testes e está limitado ao GUID da execução mais `ProbeValue`; a escrita aceita apenas DWORD 0/1. Ele não habilita caminhos arbitrários no app nem injeta política de mutação no serviço do candidato. Nenhum valor sob `Policies` ou em `HideFileExt` foi lido ou alterado.
+
+### Preferência funcional e política
+
+O teste acima não chama `WindowsRegistryPreferenceAdapter`, não lê `HideFileExt`, não valida edição/build do Windows, não prova ausência de gerenciamento organizacional e não comprova que o Explorador aplicaria a preferência. A página WPF integra leitura sob demanda, consequências, compatibilidade, estado de gestão, consentimento/captura e histórico compartilhado. A página não oferece aplicar/restaurar; `BlockedRegistryMutationPolicy` continua padrão e o inspetor retorna `Unknown`. Nenhuma leitura ou mutação da preferência funcional ocorreu nesta etapa.
+
+### Validação visual
+
+O XAML e code-behind da página foram compilados na solução WPF, mas a janela não foi aberta nem inspecionada em screenshot. Logo, a aparência e os bindings visuais ainda não foram confirmados. A pendência anterior de inspeção visual de **Processos** continua. Nenhuma interação com mouse/teclado foi feita.
+
+Build Release e os 85 testes simulados mais recentes estão registrados no final da seção correspondente em `docs/PROGRESS.md`. O teste do mecanismo Registry é real e separado desses testes simulados; ele não transforma os 85 casos em validação real de `HideFileExt`.

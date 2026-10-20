@@ -6,6 +6,7 @@ using Optimizer.Core.Profiles;
 using Optimizer.Core.Consent;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Recovery;
+using Optimizer.Core.Registry;
 using Optimizer.Windows;
 
 namespace Optimizer.App.ViewModels;
@@ -35,11 +36,19 @@ public sealed class MainWindowViewModel : ObservableObject
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "CalixtoOptimizer",
             "History");
+        var sharedJournalStore = new JsonOperationJournalStore(historyDirectory);
         var processConsent = new PlanConsentService();
         var processJournal = new OperationJournalCoordinator(processConsent);
         Processes = new ProcessesPageViewModel(new ProcessPriorityOperationService(
             new WindowsProcessPriorityAdapter(),
-            new JsonOperationJournalStore(historyDirectory),
+            sharedJournalStore,
+            processConsent,
+            processJournal));
+        var registryAdapter = new WindowsRegistryPreferenceAdapter();
+        Registry = new RegistryPageViewModel(new RegistryPreferenceOperationService(
+            registryAdapter,
+            registryAdapter,
+            sharedJournalStore,
             processConsent,
             processJournal));
         _currentPage = Overview;
@@ -52,6 +61,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new("games", "Jogos", "◇", false, "Depois"),
             new("network", "Rede", "⌘", true, null),
             new("processes", "Processos", "≋", true, null),
+            new("registry", "Registro", "⌗", true, null),
             new("history", "Histórico", "↺", true, null),
             new("settings", "Configurações", "⚙", false, "Depois")
         ];
@@ -64,6 +74,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public ProfilesPageViewModel Profiles { get; }
     public NetworkPageViewModel Network { get; }
     public ProcessesPageViewModel Processes { get; }
+    public RegistryPageViewModel Registry { get; }
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public RelayCommand<string> NavigateCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
@@ -130,6 +141,14 @@ public sealed class MainWindowViewModel : ObservableObject
             UpdateSelectedNavigation(key);
             _ = Processes.LoadProcessesAsync();
             _ = Processes.LoadHistoryAsync();
+        }
+        else if (key is "registry")
+        {
+            SelectedNavigationKey = key;
+            PageTitle = "Registro e políticas";
+            CurrentPage = Registry;
+            UpdateSelectedNavigation(key);
+            _ = Registry.LoadHistoryAsync();
         }
     }
 

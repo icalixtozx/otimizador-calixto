@@ -485,5 +485,45 @@ Continuação de `65a0ad439fb1675d8761df43b2958957298ab08c`. A pendência de ins
 
 ### Próximo passo
 
-- Próxima entrega menor: integrar a prévia de leitura, consequência contextual, consentimento e captura/histórico deste plano a uma página do app, mantendo comandos de escrita ausentes. O runner isolado só será executado após aprovação específica; não substitui validação visual nem teste do Explorador em outro PC.
+- Próxima entrega menor: validar visualmente a nova página Registro e manter a validação visual manual de **Processos**. O runner isolado foi executado com aprovação e não substitui leitura/compatibilidade da preferência real nem teste do Explorador em outro PC.
 - Pendências preservadas: validação visual manual de **Processos**, energia/VIDEOIDLE, políticas/gestão, configuração de rede, GPU programática, drivers assistidos, benchmark, instalador do build atual, recuperação prática e segundo PC.
+
+## 22. Teste isolado real de Registro e integração da página (2026-10-19)
+
+Continuação de `29de21a928626cba596cf74e4f0319a60a852cb2`. Não foi incorporado o patch de modificações futuras. A pendência de validação visual de **Processos** foi preservada.
+
+### Teste real do mecanismo em chave isolada
+
+- Após autorização exclusiva para `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>`, o runner opt-in do projeto de testes gerou o GUID `6e55acf9-2b7e-4581-95fb-3bd3b1f84684`. Usou a visão `Registry64` e somente o valor `ProbeValue` (`REG_DWORD`). O runner recusou GUID preexistente e usa a disposição de criação do Registro para detectar colisão.
+- O adaptador existe apenas no projeto de testes e aceita somente o endereço daquele GUID/valor, com escrita limitada a DWORD 0 ou 1. A aplicação e o `WindowsRegistryPreferenceAdapter` não aceitam caminho de teste nem caminho arbitrário. O teste não passa pelo serviço de `HideFileExt` nem pelo inspetor de gerenciamento.
+- Resultado real: criou uma chave GUID inicialmente vazia; adaptador leu valor ausente; criou e leu DWORD `0`; mudou e leu DWORD `1`; excluiu somente `ProbeValue`; confirmou a chave vazia e a removeu.
+- `Software\CalixtoOptimizer` e `IntegrationTests` não existiam antes. Foram criadas apenas como pais do alvo isolado e removidas por estarem vazias. Consulta somente leitura após o runner confirmou que os dois pais e o GUID não existiam. O runner terminou com código 0 e não reportou falha ou resíduo.
+- Escopo: prova as operações Registry64 e permissão do perfil para aquele endereço, nesta conta e máquina. Não leu nem alterou `HideFileExt`, não alterou `Policies`, não reiniciou Explorer e não comprova compatibilidade ou autorização da preferência real.
+
+### Integração visual implementada, ainda sem validação visual
+
+- Adicionada página **Registro e políticas**. Ela consulta `HideFileExt` somente quando a pessoa aciona “Ler estado e preparar prévia”, mostra chave/valor/tipo, alvo, compatibilidade e consequência, e mostra gerenciamento `Unknown` com bloqueio. A captura requer checkbox de consequência e é persistida pelo serviço/diário compartilhado existentes.
+- A página apresenta histórico filtrado por `registry-file-extensions`; não oferece botões de aplicação ou restauração. `BlockedRegistryMutationPolicy` continua como padrão do serviço, e a avaliação `Unknown` recusa mutações também no serviço.
+- A tela foi incluída na navegação, mas não foi aberta, clicada ou observada em screenshot. Portanto, integração compilada não significa validação visual; a página Processos também continua pendente de inspeção visual.
+- A compatibilidade documentada de `HideFileExt` permanece limitada à preferência que a Microsoft expõe na interface Windows 10/11 e ao mapeamento observado no recurso Microsoft `winget-dsc`; não há build mínimo publicado nem contrato Win32 estável para terceiros. A aplicação ainda não leu o valor neste computador, não determinou a edição/build compatível, e a detecção abrangente de gerenciamento organizacional permanece indisponível. A política de escrita permanece fechada.
+
+### Matriz completa atualizada do plano oficial
+
+| Fase oficial | Diagnóstico | Configuração / geração de plano | Execução real | Estado e evidência |
+| --- | --- | --- | --- | --- |
+| 0 — Ambiente e decisões | SDK 10.0.402 e Windows x64 locais identificados. | Escopo e limites documentados; outro PC pendente. | Build completo e harness local executados. | **Parcial** — evidência local; sem validação em outro computador. |
+| 1 — Inventário de hardware, dispositivos e drivers | WMI, PnP, energia e rede consultados em marcos anteriores. | Inventário descritivo, sem configuração. | Consultas somente leitura validadas no escopo documentado. | **Concluído localmente no escopo consultado**; cobertura de OEMs/edições ainda pendente. |
+| 2 — Catálogo, compatibilidade, perfis, consentimento, diário e simulação | Prévia real em alguns serviços; Registro ainda não lido pela UI. | Catálogo pequeno; motor, consentimento e diário reutilizados; captura Registro integrada. | Simulações, falhas injetadas e persistência do diário testadas; escrita default negada. | **Parcial** — não é catálogo completo nem recuperação automática. |
+| 3 — Primeiro ajuste reversível | VIDEOIDLE, energia e prioridade do probe têm leituras reais em seus escopos; `HideFileExt` ainda sem leitura real nesta entrega. | Registro: prévia/consequência/captura na UI; processo individual e energia codificados com bloqueios. | Ciclo de prioridade real só no probe aprovado; ciclo de Registro real só em chave teste; energia e preferência funcional não alteradas. | **Parcial** — ajuste Registro de preferência não aplicado ou validado visualmente. |
+| 4 — Energia, Registro, políticas, processos e rede | Diagnósticos existentes em graus diferentes; Registro da preferência disponível sob demanda mas não acionado; gerenciamento desconhecido; política sem inventário próprio. | Energia, processos e Registro com revisão/captura; políticas não configuráveis; rede só diagnóstica. | Energia, `HideFileExt`, políticas e rede sem mutação; apenas probe de prioridade e GUID Registro autorizados foram escritos/revertidos/limpos. | **Parcial** — política indisponível e validações visuais de Processos/Registro pendentes. |
+| 5 — Integrações GPU compatíveis | Controlador reportado; preferência e uso efetivo separados; encaminhamento nativo. | Preferência programática indisponível. | Nenhuma configuração. | **Parcial como diagnóstico/atalho**; telemetria e preferência ainda não implementadas. |
+| 6 — Pós-formatação e instalação assistida | Identificação de drivers disponível. | Catálogo de pacotes oficiais/planos de instalação não concluído. | Nenhum driver instalado. | **Parcial** — assistente não implementado. |
+| 7 — ZIP, instalador e recuperação | Artefatos antigos e hashes registrados. | Sem pacote novo nesta etapa. | Testes de versões anteriores registrados; instalação do build atual e recuperação ampla pendentes. | **Parcial** — empacotamento não conclui produto. |
+| 8 — Ajustes específicos por hardware | Matriz CPU/GPU/OEM ausente. | Integração oficial de fabricante/firmware ausente. | Não implementada nem autorizada. | **Não iniciado** — BIOS, firmware, tensão e frequência não são escritos. |
+
+### Validação e pendências
+
+- Build completo Release com SDK local explicitamente escolhido `10.0.402`: êxito, 0 avisos e 0 erros. Harness Core: **85/85** verificações simuladas passaram. O runner de integração real é separado e opt-in.
+- Não houve consulta da preferência funcional, escrita em `HideFileExt`, alteração de política, reinício do Explorer ou validação visual da tela. O teste do GUID não serve como evidência para nenhuma dessas verificações.
+- Pendências preservadas: inspeção visual manual de **Processos** e **Registro**; validar leitura/compatibilidade real do candidato sem escrita; gerenciamento corporativo; energia/VIDEOIDLE; rede/GPU; drivers assistidos; instalador/build atual; recuperação e segundo PC.
+- Próxima entrega menor: percorrer visualmente a página Registro em modo de revisão/captura sem habilitar aplicação, enquanto mantém o histórico visível; conservar a pendência visual separada para Processos.

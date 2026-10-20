@@ -8,6 +8,16 @@ using Optimizer.Core.Processes;
 using Optimizer.Core.Registry;
 using System.Net;
 
+if (args.Length == 1 && args[0] == "--windows-registry-integration")
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("SKIP: a integração de Registro exige Windows.");
+        return 2;
+    }
+    return WindowsRegistryIntegrationProbe.Run();
+}
+
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("search is case-insensitive and excludes unrelated rows", () => RunSync(SearchFiltersRows)),

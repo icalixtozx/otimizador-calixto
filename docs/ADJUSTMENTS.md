@@ -51,7 +51,7 @@ Consentimento da demonstração sintética não autoriza esse ajuste. A polític
 
 ## Catálogo restante
 
-Veja [Catálogo inicial de candidatos](INITIAL-CATALOG.md). Processos, Registro, políticas e rede permanecem indisponíveis, sem escrita nem alegação de ganho universal.
+Veja [Catálogo inicial de candidatos](INITIAL-CATALOG.md). Processos têm leitura, plano e captura; Registro tem leitura sob demanda, prévia e captura, com escrita bloqueada; políticas continuam indisponíveis.
 
 ## Modo de energia configurado do usuário (0.6.0)
 
@@ -112,10 +112,12 @@ Fontes técnicas:
 - [Microsoft Learn — políticas baseadas em ADMX e associação a valores do Registro](https://learn.microsoft.com/windows/client-management/understanding-admx-backed-policies).
 - [Microsoft Learn — abrir o Registro numa visão especificada](https://learn.microsoft.com/dotnet/api/microsoft.win32.registrykey.openbasekey?view=net-10.0).
 
-**Estado desta etapa:** código e cenários simulados podem ser implementados com esse contrato restrito. Nenhuma chave de usuário ou chave de teste pode ser criada/alterada sem aprovação específica. Os testes automáticos desta etapa devem usar somente um adaptador falso em memória.
+**Estado atual:** código, testes simulados, prévia e captura persistida estão integrados. A escrita da preferência real continua bloqueada no aplicativo. A leitura real de `HideFileExt` pela página ainda não foi executada nesta validação; será feita somente quando a pessoa usuária solicitar a prévia. Uma chave de integração temporária foi criada, testada e removida conforme aprovação específica, em um runner limitado ao seu GUID.
 
-### Procedimento proposto para um teste de integração isolado
+### Teste de integração isolado executado
 
-O teste futuro deve usar um runner de teste, não o valor funcional `HideFileExt`, e uma chave única gerada para cada execução: `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>`, valor `ProbeValue`, tipo `REG_DWORD`, visão `Registry64`. O runner deve confirmar que a chave GUID ainda não existe, criar a chave e o valor `0`, ler e comparar hive/visão/tipo/dado, mudar o mesmo valor para `1`, reler, excluir somente `ProbeValue`, confirmar que a chave GUID ficou vazia, removê-la e confirmar a ausência. Os pais `Software\CalixtoOptimizer\IntegrationTests` ficam intactos. Qualquer conteúdo inesperado interrompe o teste sem exclusão.
+Com aprovação específica, o runner opt-in `--windows-registry-integration` usou `HKCU\Software\CalixtoOptimizer\IntegrationTests\6e55acf9-2b7e-4581-95fb-3bd3b1f84684`, valor `ProbeValue`, tipo `REG_DWORD`, visão `Registry64`. O adaptador de teste aceita somente esse valor sob o GUID fornecido, lê/define DWORD 0 ou 1/remove o valor e não permite caminho arbitrário. Antes de criar, conferiu ausência; a criação usa a disposição nativa para recusar colisão.
 
-Isso verifica as chamadas locais de Registro, a ACL do perfil e a visão 64 bits; não valida que o Explorador atualize sua apresentação. O runner/adapter de teste ainda precisa ser criado. A operação não será executada sem aprovação explícita para criar, alterar e remover somente essa chave temporária.
+O teste confirmou chave vazia, leitura sem valor, gravação/leitura de `0`, alteração/leitura de `1`, remoção apenas do valor e remoção da chave GUID somente quando vazia. As chaves compartilhadas `Software\CalixtoOptimizer` e `IntegrationTests` não existiam antes; foram criadas para o teste e removidas por estarem vazias. Uma consulta posterior confirmou que ambos os pais e o GUID não existem. Nenhum resíduo foi reportado.
+
+Esse teste verifica chamadas locais de Registro, visão 64 bits e ACL para um alvo de teste. Ele não chama `WindowsRegistryPreferenceAdapter`, não passa pelo motor/aprovação de `HideFileExt`, não prova compatibilidade da preferência real, não confere gerenciamento organizacional e não valida atualização visual do Explorador. A política padrão do app permanece bloqueada e a UI não expõe aplicação/restauração.
