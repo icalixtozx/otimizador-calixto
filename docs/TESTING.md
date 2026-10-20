@@ -490,4 +490,7 @@ Nenhum item foi visualmente aprovado nesta etapa.
 - Código marca `PREVIEW R4 · v0.6.0 experimental`; assembly version base `0.6.0-experimental-preview-20261020-r4`.
 - Build completo Release pelo SDK local explícito `10.0.402`: sucesso, 0 warnings e 0 errors.
 - Harness `Optimizer.Core.Tests`: **127/127 checks simulados**. Eles não reproduzem a navegação WPF e não confirmam em runtime que o binding corrigido deixa a página Drivers aberta.
-- Instalação/desinstalação, validação visual R4 e outro PC pendentes. R3 não foi alterada.
+- Publicação autocontida `win-x64`: 405 arquivos do `dotnet publish` mais README = 406. ZIP conferido entrada por entrada contra a pasta publicada; SHA-256 `79512E849B4B354AC6DF7FAF1619E8A50973B0200576AF7C37BA919A8E40E50A`.
+- Inno Setup 7.1.0 compilou o `.iss`; EXE gerado, 46.889.238 bytes, SHA-256 `735B685A4EF208D01A8CDD9938235103FF7A6EC6E9C9140F32D72CA20C528B0D`, sem assinatura digital. Compilação não equivale a teste de instalação.
+- A versão embute `0.6.0-experimental-preview-20261020-r4+cf3fd1ebbc916876f333573743d6d79d1b798e39`; apphost e runtime .NET 10.0.13 estão incluídos.
+- Instalação/desinstalação, atalho, validação visual R4 e outro PC continuam pendentes. R3 e seus artefatos não foram alterados.

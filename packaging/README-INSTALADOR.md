@@ -66,3 +66,18 @@ Build de origem: `6839b64e4c79ca0d730632c718467f1a2e8651da`. Identificação: `P
 Build Release .NET SDK 10.0.402: 0 avisos/erros; harness 127/127 simulado. A publicação autocontida tem 406 arquivos. Inno Setup 7.1.0 compilou o script com sucesso. App e instalador não foram executados; instalação, atualização, remoção e validação visual seguem pendentes. O AppId e destino são exclusivos R3, separados do R2. Assinatura do Setup: `NotSigned`.
 
 O ciclo real AC autorizado anteriormente aparece no histórico lido pela mesma view model da tela Energia como `PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA`. A interface ainda precisa de conferência visual. Para abrir sem instalar runtime, execute o `Optimizer.App.exe` na pasta R3 publicada indicada no checklist da entrega. Não use a Preview R2 nem o executável framework-dependent em `src/Optimizer.App/bin`.
+
+## Preview R4 — correção de navegação em Drivers — 2026-10-20
+
+Commit de origem: `cf3fd1ebbc916876f333573743d6d79d1b798e39`. Identificação visível: `PREVIEW R4 · v0.6.0 experimental`, commit curto na janela e hash completo no tooltip. R4 corrige os bindings somente leitura da prévia de pacote que encerravam a R3 ao abrir Drivers. A correção passou build, mas ainda precisa de navegação visual nesta nova publicação.
+
+| Artefato | Caminho no repositório | Bytes | SHA-256 |
+|---|---|---:|---|
+| ZIP portátil | `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r4/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r4-win-x64-portable.zip` | 65.715.091 | `79512E849B4B354AC6DF7FAF1619E8A50973B0200576AF7C37BA919A8E40E50A` |
+| Instalador EXE | `artifacts/installer-preview-20261020-r4/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r4-win-x64-setup.exe` | 46.889.238 | `735B685A4EF208D01A8CDD9938235103FF7A6EC6E9C9140F32D72CA20C528B0D` |
+
+Build Release com .NET SDK 10.0.402: 0 avisos/erros; harness: 127/127 checks simulados. A pasta autocontida tem 406 arquivos incluindo README, apphost e runtime .NET/WindowsDesktop 10.0.13; o ZIP foi conferido com a pasta arquivo por arquivo. Inno Setup 7.1.0 compilou o `.iss` com sucesso e informou “Non-commercial use only”. O Setup não tem assinatura digital (`NotSigned`). O AppId, diretório e atalho de R4 são exclusivos e não substituem R2/R3.
+
+Executável portátil exato: `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r4/CalixtoOptimizer-Preview-20261020-R4/Optimizer.App.exe`. Abrir esse arquivo não exige instalar runtime separado. R4 não foi aberta, instalada nem desinstalada nesta etapa; atalho, instalação limpa, atualização e remoção não foram testados. Nenhum ajuste de Windows nem instalação de driver/programa foi executado. O usuário deve testar somente navegação e confirmar que Drivers permanece aberto; não iniciar staging ou associação.
+
+Pendências: inspeção visual de Drivers na R4; discrepância do histórico do runner não visível nas capturas R3; Programas e Energia sem captura nesta revisão; validação de instalação/desinstalação e outro computador. A origem WinGet continua indisponível neste perfil e drivers assistidos permanecem parciais.
