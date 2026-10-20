@@ -476,3 +476,18 @@ Abra o `Optimizer.App.exe` na pasta R3 indicada no relatório e confira:
 5. **Registro:** avaliação de gerenciamento/estado desconhecido e escrita bloqueada; não mudar valores nem políticas.
 
 Nenhum item foi visualmente aprovado nesta etapa.
+
+## Capturas manuais do Preview R3 e regressão de navegação em Drivers — 2026-10-20
+
+- Capturas do usuário confirmam visualmente os estados exibidos em Histórico, Registro, Processos e Rede. Histórico mostrou as listas vazias, apesar de leitura anterior do modelo ter encontrado arquivos `RealPowerMode` do runner em LocalAppData; visibilidade real desses registros pela UI R3 não está confirmada. Registro mostrou escrita bloqueada. Processos exibiu 266 itens, 122 acessos negados e 0 encerrados na leitura. Rede exibiu inventário local de 50 interfaces; nenhuma sondagem ativa foi executada.
+- Consulta somente leitura do log de Aplicativos encontrou WER/.NET Runtime para R3: binding WPF tentou atualizar `SelectedPackageReviewTarget`, propriedade sem setter, provocando `InvalidOperationException` não tratada e fechamento ao abrir Drivers.
+- Correção XAML: os três bindings de textos de revisão de pacote agora são explícitos `Mode=OneWay`.
+- Build Release da solução via SDK explícito `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` 10.0.402: sucesso, 0 warnings e 0 errors. Harness: **127/127 checks simulados**. O harness não reproduz a navegação WPF nem prova que a tela corrigida inicia.
+- Não houve reteste visual após a correção. O artefato autocontido R3 não foi modificado; o teste visual do fix exige um novo build/publicação. Nenhuma instalação, alteração Windows, operação WinGet, sonda, prioridade ou operação de driver ocorreu.
+
+## Preview autocontido R4 — build e harness
+
+- Código marca `PREVIEW R4 · v0.6.0 experimental`; assembly version base `0.6.0-experimental-preview-20261020-r4`.
+- Build completo Release pelo SDK local explícito `10.0.402`: sucesso, 0 warnings e 0 errors.
+- Harness `Optimizer.Core.Tests`: **127/127 checks simulados**. Eles não reproduzem a navegação WPF e não confirmam em runtime que o binding corrigido deixa a página Drivers aberta.
+- Instalação/desinstalação, validação visual R4 e outro PC pendentes. R3 não foi alterada.

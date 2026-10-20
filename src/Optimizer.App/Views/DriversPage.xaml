@@ -337,13 +337,13 @@
               <StackPanel>
                 <TextBlock Text="PRÉVIA DE INSTALAÇÃO — AINDA NÃO APLICADA" FontSize="11" FontWeight="Bold" Foreground="#222222" />
                 <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0">
-                  <Run Text="Dispositivo-alvo: " /><Run Text="{Binding SelectedPackageReviewTarget}" />
+                  <Run Text="Dispositivo-alvo: " /><Run Text="{Binding SelectedPackageReviewTarget, Mode=OneWay}" />
                 </TextBlock>
                 <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
-                  <Run Text="Driver atual: " /><Run Text="{Binding SelectedPackageReviewCurrentDriver}" />
+                  <Run Text="Driver atual: " /><Run Text="{Binding SelectedPackageReviewCurrentDriver, Mode=OneWay}" />
                 </TextBlock>
                 <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
-                  <Run Text="Pacote pretendido: " /><Run Text="{Binding SelectedPackageReviewPackage}" />
+                  <Run Text="Pacote pretendido: " /><Run Text="{Binding SelectedPackageReviewPackage, Mode=OneWay}" />
                 </TextBlock>
                 <TextBlock Text="{Binding SelectedPackageReview.PossibleImpact}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
                 <TextBlock Text="{Binding SelectedPackageReview.RequiredPermissions}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />

@@ -1064,3 +1064,28 @@ Continuação do commit `19f5d18345c19a143f283c017c3f193cdbd34da5`. O commit de 
 - O script R3 usa AppId, pasta de instalação e atalho exclusivos, sem apontar para nem remover a instalação R2. `artifacts/` continua ignorada pelo Git; pacotes não foram versionados.
 - Nenhuma janela foi aberta/controlada e nenhum aplicativo foi encerrado. Inspeção visual manual pendente em Energia, Histórico, Programas, Processos e Registro.
 - Não houve alteração de energia, Registro, rede, prioridade, políticas ou drivers nesta etapa. WinGet continua indisponível neste perfil, a fase 6 segue parcial, drivers assistidos seguem parciais e a validação em outro computador continua pendente. O pacote não conclui essas fases nem o módulo Energia.
+
+## 41. Capturas manuais do Preview R3 e correção do crash em Drivers — 2026-10-20
+
+O usuário enviou capturas reais das páginas Histórico, Registro, Processos e Rede e relatou que clicar em Drivers encerra o aplicativo. As telas identificam `Preview R3 · commit 6839b64`. Nenhuma ação de otimização, sonda ativa, instalação de programa/driver ou alteração de configuração foi feita durante esta revisão.
+
+- **Histórico:** a tela mostra “Nenhuma captura de modo de energia foi solicitada” e “Ainda não há operações no histórico local”. Em uma consulta anterior do modelo, o armazenamento `LocalAppData\\CalixtoOptimizer\\History\\RealPowerMode` retornou registros do runner. Portanto, a existência dos registros no modelo/arquivo não comprova que o histórico do runner esteja visível na interface R3; a captura enviada não os apresenta. A integração visual do diário do runner permanece pendente de investigação.
+- **Registro:** a faixa “ESCRITA REAL BLOQUEADA” está visível; a tela não havia solicitado uma leitura nem criado captura. A escrita continua bloqueada.
+- **Processos:** a captura mostra leitura real concluída com 266 processos listados, 122 acessos negados e 0 encerrados durante a leitura; nenhuma prioridade foi alterada. Esses são dados do computador na hora da captura, não resultados de teste simulado.
+- **Rede:** a captura mostra 50 interfaces incluindo virtuais/túneis, estados Up/Down e endereço/gateway/DNS local. Nenhum teste ativo de conectividade aparece como executado; não se conclui falta de internet por adaptadores Down ou endereços link-local.
+- **Falha de Drivers:** eventos locais `.NET Runtime` 1026 e `Application Error` 1000, às 19:24:39 e 19:27:54, apontam para o executável R3 em `artifacts\\preview-v0.6.0-experimental-selfcontained-20261020-r3\\CalixtoOptimizer-Preview-20261020-R3\\Optimizer.App.exe`. A exceção não tratada é `InvalidOperationException`: associação `TwoWay`/`OneWayToSource` à propriedade somente leitura `DriversPageViewModel.SelectedPackageReviewTarget` durante a ativação de binding WPF. Isso explica o fechamento ao criar a página.
+- **Correção no código-fonte:** os três `Run.Text` da prévia de instalação (`SelectedPackageReviewTarget`, `SelectedPackageReviewCurrentDriver`, `SelectedPackageReviewPackage`) agora declaram `Mode=OneWay`. A política de instalação de drivers continua bloqueada e não foi chamada.
+- **Build e harness:** SDK explícito `%LOCALAPPDATA%\\dotnet-sdk-10.0.402\\dotnet.exe`, versão 10.0.402. Build da solução Release terminou com 0 avisos/0 erros. Harness Core: **127/127 checks simulados aprovados**.
+- A correção foi compilada, mas não foi exercitada navegando pela página após a mudança. A pasta/ZIP/setup R3 permanecem inalterados e ainda contêm o binding com defeito. Não foi gerado pacote novo, iniciada janela ou encerrado processo. Para validar visualmente a correção, será necessário publicar uma nova compilação e abrir essa versão; usar o binário R3 atual repetirá o crash.
+
+As páginas Programas e Energia não aparecem nas capturas desta mensagem; não foram visualmente validadas aqui. WinGet segue indisponível neste perfil, instalação assistida de drivers permanece parcial e teste em outro computador segue pendente.
+
+## 42. Preview R4 para validar a correção de Drivers — 2026-10-20
+
+Preparação de uma publicação nova após o crash confirmado em R3. O código diferencia R4 no título e no rodapé; o `.iss` usa AppId, pasta de instalação, atalho e saída próprios, para coexistir com R2/R3. O ZIP e o instalador consumir serão a mesma publicação autocontida win-x64. R3 não será sobrescrita.
+
+- A correção mantém bindings somente leitura na prévia de driver (`Mode=OneWay`). Nenhum fluxo de staging/associação foi habilitado.
+- Build Release da solução com SDK explícito `%LOCALAPPDATA%\\dotnet-sdk-10.0.402\\dotnet.exe` 10.0.402: sucesso, 0 avisos/0 erros. Harness Core: **127/127 checks simulados**.
+- Scripts/fontes de empacotamento: `packaging/CalixtoOptimizer-Preview-20261020-r4.iss` e `packaging/README-PACOTE-20261020-R4.txt`. Inno Setup encontrado em `%LOCALAPPDATA%\\Programs\\Inno Setup 7\\ISCC.exe`; compilação e hashes serão registrados após publicar.
+- Destinos novos: `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r4/` e `artifacts/installer-preview-20261020-r4/`. Instalação, atualização, desinstalação e atalho não serão testados sem aprovação; nenhum app será aberto/fechado durante a produção.
+- A publicação ainda precisa de verificação de conteúdo, metadados de versão/commit e SHA-256. Compilar/empacotar não prova que Drivers abre em runtime; inspeção manual da R4 será necessária. O histórico do runner também não apareceu nas capturas R3 e continua uma pendência independente.
