@@ -139,6 +139,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("missing WinGet manager creates an individual unavailable result for selected packages", ProgramInstallReportsManagerUnavailable),
     ("WinGet exact package-not-found code is kept distinct", ProgramInstallMapsMissingPackage),
     ("WinGet no-network result is reported without claiming internet failure", ProgramInstallMapsNetworkUnavailable),
+    ("WinGet exit code zero is reported but never treated as verified installation", ProgramInstallZeroExitCodeRemainsUnverified),
     ("program installs preserve individual results after a partial package failure", ProgramInstallContinuesAfterPackageFailure),
     ("cancelled WinGet process records uncertain current state and leaves remainder unrun", ProgramInstallCancellationLeavesUnknownPartialState),
     ("restart-required WinGet result pauses the remaining package selection", ProgramInstallRestartRequiredPausesRemainder),
@@ -2972,6 +2973,22 @@ static async Task ProgramInstallMapsNetworkUnavailable()
     Assert(result.Single().Outcome == ProgramInstallOutcome.NetworkUnavailable
         && result.Single().Summary.Contains("não foi inferido", StringComparison.OrdinalIgnoreCase),
         "documented WinGet no-network result should not be generalized to total internet failure");
+}
+
+static async Task ProgramInstallZeroExitCodeRemainsUnverified()
+{
+    var runner = new FakeProgramInstallRunner();
+    runner.Results.Enqueue(new(ProgramRunnerOutcome.Completed, 0));
+    var service = new ProgramInstallService(ProgramCatalog.CreateDefault(), runner, new TestProgramInstallExecutionPolicy(true));
+    var result = await service.ExecuteAsync([
+        new ProgramInstallRequest("7zip.7zip", MakeProgramConsent("7zip.7zip"))]);
+    var item = result.Single();
+
+    Assert(item.ExitCode == 0, "the zero exit code should remain available for review");
+    Assert(item.Outcome == ProgramInstallOutcome.ReportedSuccessUnverified,
+        "a process exit code of zero must not become verified installation success");
+    Assert(item.Summary.Contains("não foram verificados", StringComparison.OrdinalIgnoreCase),
+        "the result must state that installed presence and function were not verified");
 }
 
 static async Task ProgramInstallContinuesAfterPackageFailure()
