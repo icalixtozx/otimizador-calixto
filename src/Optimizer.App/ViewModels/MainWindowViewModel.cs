@@ -25,18 +25,31 @@ public sealed class MainWindowViewModel : ObservableObject
         _computerInventoryService = computerInventoryService;
         _powerPlanInventoryService = powerPlanInventoryService;
         Overview = new OverviewPageViewModel();
-        Drivers = new DriversPageViewModel(driverInventoryService);
+        var historyDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CalixtoOptimizer",
+            "History");
+        var sharedJournalStore = new JsonOperationJournalStore(historyDirectory);
+        var sharedConsent = new PlanConsentService();
+        var sharedJournal = new OperationJournalCoordinator(sharedConsent);
+        var driverSignatureVerifier = new WindowsDriverPackageSignatureVerifier();
+        Drivers = new DriversPageViewModel(
+            driverInventoryService,
+            new LocalDriverPackageAnalyzer(driverSignatureVerifier),
+            new DriverPackageInstallationService(
+                driverInventoryService,
+                new PnpUtilDriverPackageInstaller(),
+                driverSignatureVerifier,
+                sharedJournalStore,
+                sharedConsent,
+                sharedJournal,
+                new BlockedDriverPackageMutationPolicy("Instalação de drivers está bloqueada nesta etapa; nenhuma chamada ao PnPUtil será iniciada.")));
         Profiles = new ProfilesPageViewModel(
             OptimizerProfileCatalog.CreateDefault(),
             new AdjustmentCatalog([]),
             new WindowsVideoIdlePowerAdapter(),
             new WindowsPowerModeAdapter());
         Network = new NetworkPageViewModel(new Optimizer.Core.Network.NetworkDiagnosticsService(new WindowsNetworkDiagnosticsAdapter()));
-        var historyDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CalixtoOptimizer",
-            "History");
-        var sharedJournalStore = new JsonOperationJournalStore(historyDirectory);
         var processConsent = new PlanConsentService();
         var processJournal = new OperationJournalCoordinator(processConsent);
         Processes = new ProcessesPageViewModel(new ProcessPriorityOperationService(

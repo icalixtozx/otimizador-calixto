@@ -8,7 +8,8 @@ public enum AdjustmentArea
     Processes,
     Network,
     Graphics,
-    Other
+    Other,
+    Drivers
 }
 
 public enum AdjustmentRiskLevel

@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
-using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using Optimizer.Core.Adjustments;
 using Optimizer.Core.Inventory;
+using Optimizer.Core.Recovery;
 
 namespace Optimizer.App.ViewModels;
 
@@ -14,9 +16,11 @@ public sealed class SignatureFilterOption(string label, DriverSignatureFilter va
     public override string ToString() => Label;
 }
 
-public sealed class DriversPageViewModel : ObservableObject
+public sealed class DriversPageViewModel : ObservableObject, IDisposable
 {
     private readonly IDriverInventoryService _inventoryService;
+    private readonly LocalDriverPackageAnalyzer _packageAnalyzer;
+    private readonly DriverPackageInstallationService _packageInstallationService;
     private IReadOnlyList<DriverInfo> _allDrivers = Array.Empty<DriverInfo>();
     private string _searchText = string.Empty;
     private SignatureFilterOption _selectedFilter;
@@ -29,10 +33,20 @@ public sealed class DriversPageViewModel : ObservableObject
     private bool _isImportingPackage;
     private bool _showCandidateReview;
     private DateTimeOffset? _collectedAtUtc;
+    private LocalDriverPackageAnalysisResult? _currentPackageAnalysis;
+    private DriverPackageInstallReview? _selectedPackageReview;
+    private string? _packageAnalysisSummary;
+    private string? _installCaptureFeedback;
+    private bool _driverInstallConsequencesAccepted;
 
-    public DriversPageViewModel(IDriverInventoryService inventoryService)
+    public DriversPageViewModel(
+        IDriverInventoryService inventoryService,
+        LocalDriverPackageAnalyzer packageAnalyzer,
+        DriverPackageInstallationService packageInstallationService)
     {
         _inventoryService = inventoryService;
+        _packageAnalyzer = packageAnalyzer;
+        _packageInstallationService = packageInstallationService;
         FilterOptions =
         [
             new("Todos", DriverSignatureFilter.All),
@@ -46,17 +60,24 @@ public sealed class DriversPageViewModel : ObservableObject
         ToggleCandidateReviewCommand = new RelayCommand(ToggleCandidateReview);
         ImportLocalPackageCommand = new AsyncRelayCommand(ImportLocalPackageAsync, () => !IsImportingPackage);
         OpenOfficialSourceCommand = new RelayCommand<DriverPackageAssessment>(OpenOfficialSource);
+        PreparePackageInstallPreviewCommand = new RelayCommand<DriverPackageInfCandidate>(PreparePackageInstallPreview);
+        RecordPackageInstallConsentAndCaptureCommand = new AsyncRelayCommand(
+            RecordPackageInstallConsentAndCaptureAsync,
+            () => !IsImportingPackage && SelectedPackageReview is not null && DriverInstallConsequencesAccepted);
     }
 
     public DriverInventoryResult? LastResult { get; private set; }
     public ObservableCollection<SignatureFilterOption> FilterOptions { get; }
     public ObservableCollection<DriverInfo> FilteredDrivers { get; } = [];
     public ObservableCollection<DriverPackageAssessment> CandidateReviews { get; } = [];
+    public ObservableCollection<DriverPackageInfCandidate> LocalPackageCandidates { get; } = [];
     public AsyncRelayCommand ReloadCommand { get; }
     public RelayCommand ExportCommand { get; }
     public RelayCommand ToggleCandidateReviewCommand { get; }
     public AsyncRelayCommand ImportLocalPackageCommand { get; }
     public RelayCommand<DriverPackageAssessment> OpenOfficialSourceCommand { get; }
+    public RelayCommand<DriverPackageInfCandidate> PreparePackageInstallPreviewCommand { get; }
+    public AsyncRelayCommand RecordPackageInstallConsentAndCaptureCommand { get; }
 
     public string SearchText
     {
@@ -112,6 +133,63 @@ public sealed class DriversPageViewModel : ObservableObject
         }
     }
     public bool HasPackageImportFeedback => !string.IsNullOrWhiteSpace(PackageImportFeedback);
+    public string? PackageAnalysisSummary
+    {
+        get => _packageAnalysisSummary;
+        private set
+        {
+            if (SetProperty(ref _packageAnalysisSummary, value))
+                OnPropertyChanged(nameof(HasPackageAnalysisSummary));
+        }
+    }
+    public bool HasPackageAnalysisSummary => !string.IsNullOrWhiteSpace(PackageAnalysisSummary);
+    public DriverPackageInstallReview? SelectedPackageReview
+    {
+        get => _selectedPackageReview;
+        private set
+        {
+            if (SetProperty(ref _selectedPackageReview, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedPackageReview));
+                OnPropertyChanged(nameof(CanRecordPackageInstallConsentAndCapture));
+                OnPropertyChanged(nameof(SelectedPackageReviewTarget));
+                OnPropertyChanged(nameof(SelectedPackageReviewCurrentDriver));
+                OnPropertyChanged(nameof(SelectedPackageReviewPackage));
+                RecordPackageInstallConsentAndCaptureCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+    public bool HasSelectedPackageReview => SelectedPackageReview is not null;
+    public bool CanRecordPackageInstallConsentAndCapture => !IsImportingPackage &&
+        SelectedPackageReview is not null && DriverInstallConsequencesAccepted;
+    public string SelectedPackageReviewTarget => SelectedPackageReview is null
+        ? string.Empty : SelectedPackageReview.Candidate.TargetSummary;
+    public string SelectedPackageReviewCurrentDriver => SelectedPackageReview is null
+        ? string.Empty : $"{SelectedPackageReview.CurrentDriver.Provider ?? "Fornecedor não informado"} · {SelectedPackageReview.CurrentDriver.Version ?? "versão não informada"} · INF {SelectedPackageReview.CurrentDriver.InfName ?? "não informado"}";
+    public string SelectedPackageReviewPackage => SelectedPackageReview is null
+        ? string.Empty : $"{SelectedPackageReview.Candidate.SourceFileName} · {SelectedPackageReview.Candidate.InfName} · versão declarada {SelectedPackageReview.Candidate.DriverVersion ?? "não informada"} · {SelectedPackageReview.Candidate.SourceHashLabel} {SelectedPackageReview.Candidate.SourceSha256}";
+    public string? InstallCaptureFeedback
+    {
+        get => _installCaptureFeedback;
+        private set
+        {
+            if (SetProperty(ref _installCaptureFeedback, value))
+                OnPropertyChanged(nameof(HasInstallCaptureFeedback));
+        }
+    }
+    public bool HasInstallCaptureFeedback => !string.IsNullOrWhiteSpace(InstallCaptureFeedback);
+    public bool DriverInstallConsequencesAccepted
+    {
+        get => _driverInstallConsequencesAccepted;
+        set
+        {
+            if (SetProperty(ref _driverInstallConsequencesAccepted, value))
+            {
+                OnPropertyChanged(nameof(CanRecordPackageInstallConsentAndCapture));
+                RecordPackageInstallConsentAndCaptureCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
     public bool ShowCandidateReview
     {
         get => _showCandidateReview;
@@ -149,7 +227,11 @@ public sealed class DriversPageViewModel : ObservableObject
         private set
         {
             if (SetProperty(ref _isImportingPackage, value))
+            {
+                OnPropertyChanged(nameof(CanRecordPackageInstallConsentAndCapture));
                 ImportLocalPackageCommand.NotifyCanExecuteChanged();
+            RecordPackageInstallConsentAndCaptureCommand.NotifyCanExecuteChanged();
+            }
         }
     }
     public bool IsLoading
@@ -302,30 +384,131 @@ public sealed class DriversPageViewModel : ObservableObject
         {
             CheckFileExists = true,
             Multiselect = false,
-            Filter = "Pacote ZIP (*.zip)|*.zip|Todos os arquivos (*.*)|*.*",
-            Title = "Conferir um pacote de driver local (somente leitura)"
+            Filter = "Pacote de driver (INF ou ZIP)|*.inf;*.zip|Arquivo INF (*.inf)|*.inf|Pacote ZIP (*.zip)|*.zip",
+            Title = "Analisar pacote de driver local sem executar instaladores"
         };
 
         if (dialog.ShowDialog() != true) return;
 
         IsImportingPackage = true;
-        PackageImportFeedback = "Lendo o ZIP local e calculando SHA-256. Nenhum conteúdo será extraído ou executado…";
+        PackageImportFeedback = "Analisando INF/ZIP em segundo plano. Instaladores e scripts não serão executados…";
+        PackageAnalysisSummary = null;
+        InstallCaptureFeedback = null;
+        SelectedPackageReview = null;
+        DriverInstallConsequencesAccepted = false;
+        LocalPackageCandidates.Clear();
+        _currentPackageAnalysis?.Dispose();
+        _currentPackageAnalysis = null;
         try
         {
-            await using var stream = new FileStream(dialog.FileName, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, useAsync: true);
-            var digest = await SHA256.HashDataAsync(stream);
-            var result = DriverPackageCandidateCatalog.IdentifyArchive(
-                Path.GetFileName(dialog.FileName), Convert.ToHexString(digest));
-            PackageImportFeedback = $"{result.FileName}: SHA-256 {result.Sha256}. {result.Status}";
+            var devices = LastResult?.Availability == InventoryAvailability.Available
+                ? LastResult.Drivers
+                : Array.Empty<DriverInfo>();
+            var analysis = await _packageAnalyzer.AnalyzeAsync(
+                dialog.FileName, devices, GetCurrentPackagePlatform());
+            _currentPackageAnalysis = analysis;
+            foreach (var candidate in analysis.Candidates) LocalPackageCandidates.Add(candidate);
+            var identity = DriverPackageCandidateCatalog.IdentifyArchive(analysis.SourceFileName, analysis.SourceSha256);
+            var recognized = identity.RecognizedCandidate is null
+                ? "Hash não corresponde a um arquivo ASUS previamente revisado."
+                : $"Hash reconhecido como os mesmos bytes do candidato {identity.RecognizedCandidate.PackageTitle}; isso não prova necessidade nem substitui a análise genérica.";
+            var sourceHashLabel = analysis.SourceFileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                ? "SHA-256 do ZIP" : "SHA-256 do INF selecionado";
+            PackageAnalysisSummary = $"{analysis.SourceFileName} · {sourceHashLabel} {analysis.SourceSha256}. {analysis.IntegritySummary} {recognized}";
+            PackageImportFeedback = analysis.Candidates.Count == 0
+                ? "Nenhum INF foi encontrado para análise. Nenhum instalador foi executado."
+                : $"Análise concluída: {analysis.Candidates.Count} INF(s). Leia o resultado e os motivos de cada um; somente candidato compatível exato pode gerar prévia.";
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or InvalidDataException or ArgumentException)
         {
-            PackageImportFeedback = $"Não foi possível ler o pacote local ({exception.GetType().Name}). Nenhum arquivo foi alterado.";
+            PackageImportFeedback = $"Análise recusada ou incompleta ({exception.GetType().Name}): {exception.Message} Nenhum instalador foi executado e nenhum driver/configuração do Windows foi alterado.";
         }
         finally
         {
             IsImportingPackage = false;
         }
+    }
+
+    private void PreparePackageInstallPreview(DriverPackageInfCandidate? candidate)
+    {
+        if (candidate is null) return;
+        if (LastResult?.Availability != InventoryAvailability.Available)
+        {
+            InstallCaptureFeedback = "A leitura Plug and Play não está completa; atualize o inventário antes de preparar um alvo.";
+            return;
+        }
+        if (!candidate.CanPrepareInstallation || candidate.DeviceMatches.Count != 1)
+        {
+            InstallCaptureFeedback = "Este resultado é incompatível, ambíguo ou incompleto; não pode receber prévia de instalação.";
+            return;
+        }
+
+        try
+        {
+            SelectedPackageReview = _packageInstallationService.CreateReview(
+                candidate, candidate.DeviceMatches[0].Device, GetCurrentAdjustmentPlatform());
+            DriverInstallConsequencesAccepted = false;
+            InstallCaptureFeedback = "Prévia local criada. Nenhuma captura ou instalação foi registrada; execução real permanece bloqueada nesta etapa.";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or PlatformNotSupportedException or ArgumentException)
+        {
+            SelectedPackageReview = null;
+            InstallCaptureFeedback = $"Não foi possível preparar a prévia ({exception.GetType().Name}): {exception.Message}";
+        }
+    }
+
+    private async Task RecordPackageInstallConsentAndCaptureAsync()
+    {
+        if (SelectedPackageReview is null || !DriverInstallConsequencesAccepted) return;
+        IsImportingPackage = true;
+        InstallCaptureFeedback = "Relendo o dispositivo e os arquivos; o consentimento e a captura serão gravados apenas se o estado ainda corresponder à prévia…";
+        try
+        {
+            var entry = await _packageInstallationService.CaptureAsync(
+                SelectedPackageReview, consequencesAccepted: true);
+            InstallCaptureFeedback = entry.State switch
+            {
+                JournalOperationState.SnapshotsCaptured => $"Consentimento específico e captura somente leitura salvos no Histórico local · {entry.OperationId.ToString("N")[..8].ToUpperInvariant()}. Driver Store não alterado; driver não instalado; execução real bloqueada.",
+                JournalOperationState.Conflict => "O estado do dispositivo divergiu; conflito registrado no Histórico. Nenhum driver foi instalado.",
+                JournalOperationState.Failed or JournalOperationState.Interrupted => $"Captura não concluída ({entry.State}); consulte o Histórico. Nenhuma instalação foi tentada.",
+                _ => $"Estado registrado: {entry.State}. Nenhuma instalação foi tentada."
+            };
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            InstallCaptureFeedback = $"Consentimento/captura não foram confirmados ({exception.GetType().Name}). Nenhuma instalação foi tentada.";
+        }
+        finally
+        {
+            IsImportingPackage = false;
+        }
+    }
+
+    private static DriverPackageTargetPlatform GetCurrentPackagePlatform()
+    {
+        var version = OperatingSystem.IsWindows() ? Environment.OSVersion.Version : new Version(0, 0);
+        var architecture = RuntimeInformation.OSArchitecture switch
+        {
+            Architecture.X64 => "amd64",
+            Architecture.X86 => "x86",
+            Architecture.Arm64 => "arm64",
+            Architecture.Arm => "arm",
+            _ => string.Empty
+        };
+        return new(architecture, version.Major, version.Minor, version.Build);
+    }
+
+    private static PlatformDescriptor GetCurrentAdjustmentPlatform()
+    {
+        var packagePlatform = GetCurrentPackagePlatform();
+        var architecture = packagePlatform.Architecture switch { "amd64" => "x64", "x86" => "x86", "arm64" => "arm64", _ => string.Empty };
+        return new(OperatingSystem.IsWindows(), architecture, packagePlatform.WindowsBuild);
+    }
+
+    public void Dispose()
+    {
+        _currentPackageAnalysis?.Dispose();
+        _currentPackageAnalysis = null;
     }
 
     private void OpenOfficialSource(DriverPackageAssessment? assessment)

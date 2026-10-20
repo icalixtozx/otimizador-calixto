@@ -189,7 +189,7 @@
                 <TextBlock Text="{Binding CandidateInventoryStatus}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,6,0,0" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                   <Button Style="{StaticResource QuietButton}" Command="{Binding ImportLocalPackageCommand}" IsEnabled="{Binding IsNotLoading}">
-                    <TextBlock Text="Conferir ZIP local (somente leitura)" />
+                    <TextBlock Text="Analisar INF/ZIP local (sem executar)" />
                   </Button>
                   <ProgressBar Width="70" Height="3" IsIndeterminate="True" Margin="12,0,0,0" VerticalAlignment="Center"
                                Visibility="{Binding IsImportingPackage, Converter={StaticResource BoolToVisibility}}" />
@@ -274,6 +274,86 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="15" Margin="0,0,0,12"
+                    Visibility="{Binding HasPackageAnalysisSummary, Converter={StaticResource BoolToVisibility}}">
+              <StackPanel>
+                <TextBlock Text="ANÁLISE GENÉRICA DO PACOTE LOCAL" FontSize="10" FontWeight="Bold" Foreground="#555555" />
+                <TextBlock Text="{Binding PackageAnalysisSummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+                <TextBlock Text="{Binding PackageImportFeedback}" FontSize="10" Foreground="#333333" TextWrapping="Wrap" Margin="0,5,0,0" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding LocalPackageCandidates}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="15" Margin="0,0,0,12">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding InfName}" FontSize="13" FontWeight="Bold" />
+                          <TextBlock FontSize="10" Foreground="#666666" Margin="0,3,0,0">
+                            <Run Text="Provider: " /><Run Text="{Binding Provider, TargetNullValue='não informado'}" />
+                            <Run Text=" · DriverVer: " /><Run Text="{Binding DriverVersion, TargetNullValue='não informado'}" />
+                          </TextBlock>
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#F1F1EF" CornerRadius="6" Padding="9,6" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding OutcomeLabel}" FontSize="9" FontWeight="Bold" TextWrapping="Wrap" MaxWidth="260" />
+                        </Border>
+                      </Grid>
+                      <TextBlock Text="{Binding TargetSummary}" FontSize="10" FontWeight="SemiBold" Foreground="#333333" TextWrapping="Wrap" Margin="0,8,0,0" />
+                      <TextBlock FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                        <Run Text="Catálogo: " /><Run Text="{Binding CatalogName, TargetNullValue='não informado'}" />
+                        <Run Text=" · assinatura/membership: " /><Run Text="{Binding SignatureStatusLabel}" />
+                        <Run Text=" · signatário: " /><Run Text="{Binding CatalogSigner, TargetNullValue='não retornado'}" />
+                      </TextBlock>
+                      <TextBlock FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                        <Run Text="Arquivos necessários encontrados e verificados: " /><Run Text="{Binding RequiredPackageFiles.Count}" />
+                        <Run Text=" · INF SHA-256: " /><Run Text="{Binding InfSha256, TargetNullValue='indisponível'}" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding ReasonsSummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
+                      <Button Style="{StaticResource QuietButton}"
+                              Command="{Binding DataContext.PreparePackageInstallPreviewCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                              CommandParameter="{Binding}" IsEnabled="{Binding CanPrepareInstallation}" HorizontalAlignment="Left" Margin="0,9,0,0">
+                        <TextBlock Text="Preparar prévia para este dispositivo" />
+                      </Button>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Background="#F7F7F5" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="15" Margin="0,0,0,14"
+                    Visibility="{Binding HasSelectedPackageReview, Converter={StaticResource BoolToVisibility}}">
+              <StackPanel>
+                <TextBlock Text="PRÉVIA DE INSTALAÇÃO — AINDA NÃO APLICADA" FontSize="11" FontWeight="Bold" Foreground="#222222" />
+                <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0">
+                  <Run Text="Dispositivo-alvo: " /><Run Text="{Binding SelectedPackageReviewTarget}" />
+                </TextBlock>
+                <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                  <Run Text="Driver atual: " /><Run Text="{Binding SelectedPackageReviewCurrentDriver}" />
+                </TextBlock>
+                <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                  <Run Text="Pacote pretendido: " /><Run Text="{Binding SelectedPackageReviewPackage}" />
+                </TextBlock>
+                <TextBlock Text="{Binding SelectedPackageReview.PossibleImpact}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,7,0,0" />
+                <TextBlock Text="{Binding SelectedPackageReview.RequiredPermissions}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <TextBlock Text="{Binding SelectedPackageReview.RecoveryLimits}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <CheckBox Content="Li e aceito as consequências desta prévia específica. Isto não autoriza a instalação real."
+                          IsChecked="{Binding DriverInstallConsequencesAccepted, Mode=TwoWay}" FontSize="10" Foreground="#333333" Margin="0,10,0,0" />
+                <Button Style="{StaticResource QuietButton}" Command="{Binding RecordPackageInstallConsentAndCaptureCommand}"
+                        IsEnabled="{Binding CanRecordPackageInstallConsentAndCapture}" HorizontalAlignment="Left" Margin="0,8,0,0">
+                  <TextBlock Text="Registrar consentimento e captura no histórico" />
+                </Button>
+                <TextBlock Text="Instalação real BLOQUEADA nesta etapa. Nenhuma alteração de driver é executada; o consentimento e a captura apenas registram o estado revisado." FontSize="10" FontWeight="Bold" Foreground="#842525" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding InstallCaptureFeedback}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0"
+                           Visibility="{Binding HasInstallCaptureFeedback, Converter={StaticResource BoolToVisibility}}" />
+              </StackPanel>
+            </Border>
           </StackPanel>
         </ScrollViewer>
       </Grid>

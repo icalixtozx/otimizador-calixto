@@ -242,6 +242,19 @@ public sealed class OperationJournalCoordinator(PlanConsentService consentServic
         return AppendEvent(entry, "WriteNotAttempted", message);
     }
 
+    /// <summary>Appends a named progress result without implying that the device state was verified.</summary>
+    public OperationJournalEntry RecordProgress(OperationJournalEntry entry, string eventType, string message)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (string.IsNullOrWhiteSpace(eventType) || string.IsNullOrWhiteSpace(message))
+            throw new ArgumentException("A progress event requires a type and a message.");
+        if (entry.State is JournalOperationState.Planned or JournalOperationState.ConsentRecorded or
+            JournalOperationState.SnapshotsCaptured or JournalOperationState.MutationMayHaveStarted or
+            JournalOperationState.Failed or JournalOperationState.Interrupted)
+            return AppendEvent(entry, eventType, message);
+        throw new InvalidOperationException("A finished journal operation cannot receive progress events.");
+    }
+
     public OperationJournalEntry MarkSimulationCompleted(OperationJournalEntry entry)
     {
         if (entry.DataOrigin != JournalDataOrigin.SyntheticDemonstration)

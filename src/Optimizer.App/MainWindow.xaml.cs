@@ -16,6 +16,7 @@ public partial class MainWindow : Window
             new WmiDriverInventoryService(),
             new WindowsPowerPlanInventoryService());
         Loaded += MainWindow_Loaded;
+        Closed += (_, _) => ((MainWindowViewModel)DataContext).Drivers.Dispose();
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)

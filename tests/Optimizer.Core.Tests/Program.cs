@@ -7,6 +7,7 @@ using Optimizer.Core.Network;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Registry;
 using System.Net;
+using System.IO.Compression;
 
 if (args.Length == 1 && args[0] == "--windows-registry-integration")
 {
@@ -33,6 +34,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("official driver candidates match exact hardware IDs and show installed metadata", () => RunSync(DriverCandidatesMatchExactHardwareIds)),
     ("official driver candidate ambiguity is explicit and blocks installation", () => RunSync(DriverCandidateAmbiguityBlocksInstallation)),
     ("local package recognition uses the reviewed archive SHA-256 only", () => RunSync(LocalDriverPackageRecognitionUsesHash)),
+    ("generic ZIP analysis verifies exact INF matches and disposes only its owned extraction", GenericDriverPackageZipAnalysisIsBoundedAndScoped),
+    ("generic ZIP analysis blocks traversal and archive size-limit violations", GenericDriverPackageZipRejectsUnsafeAndOversizedInputs),
+    ("generic package analysis separates compatible, incompatible, ambiguous, and incomplete candidates", GenericDriverPackageOutcomesAreConservative),
+    ("local INF analysis reads package files without extraction", LocalInfAnalysisIsReadOnly),
+    ("auxiliary INF files are visible as incomplete and cannot become driver previews", AuxiliaryInfIsNotDriverCandidate),
+    ("driver install preview reuses consent and history while default mutation policy blocks the backend", DriverInstallPreviewAndDefaultPolicyAreSafe),
     ("diagnostic JSON omits hardware identifiers and keeps PnP codes neutral", () => RunSync(DiagnosticJsonIsSanitizedAndNeutral)),
     ("PnP codes and missing metadata are presented without diagnosis", () => RunSync(PnpStatusRemainsNeutral)),
     ("catalog rejects duplicate stable IDs", () => RunSync(CatalogRejectsDuplicateIds)),
@@ -804,6 +811,253 @@ static void LocalDriverPackageRecognitionUsesHash()
         "unrecognized archive must not be considered validated");
     AssertThrows<ArgumentException>(() => DriverPackageCandidateCatalog.IdentifyArchive("bad.zip", "not-a-digest"));
 }
+
+static async Task GenericDriverPackageZipAnalysisIsBoundedAndScoped()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "local-driver.zip");
+        CreateSampleDriverZip(zipPath);
+        var targetId = "PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001";
+        var device = new DriverInfo("Sample Ethernet", "PCI\\INSTANCE-1", "Current vendor", "1.2.3.4", null,
+            "old.inf", true, "Current signer", 0, HardwareIds: [targetId]);
+        var analyzer = new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier());
+        var result = await analyzer.AnalyzeAsync(zipPath, [device], new("x64", 10, 0, 26300));
+        var infPath = result.Candidates.Single().InfPath;
+        Assert(result.SourceSha256.Length == 64 && result.ArchiveEntryCount == 5,
+            "ZIP hash and bounded entry count should be recorded");
+        Assert(result.Candidates.Count == 1,
+            "non-driver auxiliary INF files such as Autorun.inf should not be presented as PnP driver candidates");
+        Assert(result.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks,
+            "an exact Hardware ID, applicable x64/Windows decoration, valid mock catalog and complete source file should pass only documented checks");
+        Assert(result.Candidates.Single().CanPrepareInstallation,
+            "only the unique exact match should be eligible for an installation preview");
+        Assert(File.Exists(infPath) && Path.GetFullPath(infPath).StartsWith(
+            Path.GetFullPath(Path.Combine(Path.GetTempPath(), "CalixtoOptimizer", "DriverAnalysis")), StringComparison.OrdinalIgnoreCase),
+            "ZIP content should be extracted under the owned temporary analysis root");
+        Assert(result.Candidates.Single().RequiredPackageFiles.SequenceEqual(["sample.sys"]),
+            "SourceDisksFiles entries should be enumerated for package integrity checks");
+        Assert(result.Candidates.Single().PayloadFilesSha256?.Count == 3,
+            "INF, catalog and required payload file hashes should be retained for tamper rechecks");
+        result.Dispose();
+        Assert(!Directory.Exists(Path.GetDirectoryName(infPath)),
+            "disposing a ZIP analysis should remove only its owned temporary extraction");
+        Assert(File.Exists(zipPath), "disposing analysis must preserve the source ZIP");
+    });
+}
+
+static async Task GenericDriverPackageZipRejectsUnsafeAndOversizedInputs()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "traversal.zip");
+        var escapeToken = Guid.NewGuid().ToString("N");
+        var escapePath = Path.Combine(Path.GetTempPath(), "CalixtoOptimizer", "DriverAnalysis", $"escaped-{escapeToken}.txt");
+        using (var stream = File.Create(zipPath))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            var escapeName = $"../escaped-{escapeToken}.txt";
+            var entry = archive.CreateEntry(escapeName);
+            using (var writer = new StreamWriter(entry.Open())) await writer.WriteAsync("must not be written");
+            var inf = archive.CreateEntry("sample.inf");
+            using (var writer = new StreamWriter(inf.Open())) await writer.WriteAsync(SampleDriverInf("PCI\\VEN_1234&DEV_5678"));
+        }
+
+        var analyzer = new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier());
+        await AssertThrowsAsync<InvalidDataException>(() => analyzer.AnalyzeAsync(
+            zipPath, Array.Empty<DriverInfo>(), new("x64", 10, 0, 26300)));
+        Assert(!File.Exists(escapePath), "ZIP traversal must be rejected before writing outside its temporary directory");
+
+        var normalZip = Path.Combine(directory, "normal.zip");
+        CreateSampleDriverZip(normalZip);
+        var tinyLimitAnalyzer = new LocalDriverPackageAnalyzer(
+            new FakeDriverPackageSignatureVerifier(), maxArchiveBytes: 8, maxExpandedBytes: 1024, maxSingleFileBytes: 1024, maxEntries: 16);
+        await AssertThrowsAsync<InvalidDataException>(() => tinyLimitAnalyzer.AnalyzeAsync(
+            normalZip, Array.Empty<DriverInfo>(), new("x64", 10, 0, 26300)));
+    });
+}
+
+static async Task GenericDriverPackageOutcomesAreConservative()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "outcomes.zip");
+        CreateSampleDriverZip(zipPath);
+        var targetId = "PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001";
+        var analyzer = new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier());
+        var platform = new DriverPackageTargetPlatform("amd64", 10, 0, 26300);
+
+        using var compatible = await analyzer.AnalyzeAsync(zipPath,
+            [new DriverInfo("Target", "PCI\\ONE", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
+        Assert(compatible.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks,
+            "one exact match should pass when required files and signatures are all confirmed");
+
+        using var incompatible = await analyzer.AnalyzeAsync(zipPath,
+            [new DriverInfo("Other", "PCI\\TWO", null, "1", null, "old.inf", true, null, 0, HardwareIds: ["PCI\\VEN_9999&DEV_0001"])], platform);
+        Assert(incompatible.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incompatible,
+            "a fully parsed INF with no matching ID should be incompatible rather than incomplete");
+
+        using var ambiguous = await analyzer.AnalyzeAsync(zipPath,
+            [new DriverInfo("Generic match", "PCI\\THREE", null, "1", null, "old.inf", true, null, 0,
+                CompatibleIds: [targetId])], platform);
+        Assert(ambiguous.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Ambiguous &&
+               !ambiguous.Candidates.Single().CanPrepareInstallation,
+            "Compatible ID only must remain ambiguous and block preview");
+
+        using var duplicate = await analyzer.AnalyzeAsync(zipPath,
+            [new DriverInfo("Target A", "PCI\\A", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId]),
+             new DriverInfo("Target B", "PCI\\B", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
+        Assert(duplicate.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Ambiguous,
+            "more than one exact device match should not choose a target automatically");
+
+        var missingPayloadZip = Path.Combine(directory, "missing-payload.zip");
+        CreateSampleDriverZip(missingPayloadZip, includeDriverBinary: false);
+        using var incomplete = await analyzer.AnalyzeAsync(missingPayloadZip,
+            [new DriverInfo("Target", "PCI\\ONE", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
+        Assert(incomplete.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incomplete &&
+               incomplete.Candidates.Single().Reasons.Any(reason => reason.Contains("não encontrado", StringComparison.OrdinalIgnoreCase)),
+            "a required payload file missing from the package should make analysis incomplete and block use");
+
+        using var unavailableSignature = await new LocalDriverPackageAnalyzer(
+            new FakeDriverPackageSignatureVerifier(DriverPackageVerificationStatus.Unavailable)).AnalyzeAsync(zipPath,
+                [new DriverInfo("Target", "PCI\\ONE", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
+        Assert(unavailableSignature.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incomplete,
+            "an unavailable signature-verification mechanism must be reported as incomplete rather than incompatible");
+
+        using var invalidSignature = await new LocalDriverPackageAnalyzer(
+            new FakeDriverPackageSignatureVerifier(DriverPackageVerificationStatus.Invalid)).AnalyzeAsync(zipPath,
+                [new DriverInfo("Target", "PCI\\ONE", null, "1", null, "old.inf", true, null, 0, HardwareIds: [targetId])], platform);
+        Assert(invalidSignature.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incompatible,
+            "an explicitly rejected package signature must be classified as incompatible, not as an unknown incomplete check");
+    });
+}
+
+static async Task LocalInfAnalysisIsReadOnly()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var infPath = Path.Combine(directory, "sample.inf");
+        await File.WriteAllTextAsync(infPath, SampleDriverInf("PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001"));
+        await File.WriteAllTextAsync(Path.Combine(directory, "sample.cat"), "catalog");
+        await File.WriteAllTextAsync(Path.Combine(directory, "sample.sys"), "driver");
+        var device = new DriverInfo("Sample device", "PCI\\INSTANCE", "Old vendor", "1", null, "old.inf", true, null, 0,
+            HardwareIds: ["PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001"]);
+        using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(infPath, [device], new("amd64", 10, 0, 26300));
+        Assert(result.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks,
+            "a direct local INF should use the same metadata checks without extracting or changing files");
+        Assert(File.Exists(infPath) && File.Exists(Path.Combine(directory, "sample.sys")),
+            "disposing a direct INF analysis must never remove or modify the user's package folder");
+    });
+}
+
+static async Task AuxiliaryInfIsNotDriverCandidate()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var infPath = Path.Combine(directory, "Autorun.inf");
+        await File.WriteAllTextAsync(infPath, "[autorun]\r\nopen=setup.exe\r\n");
+        using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(infPath, Array.Empty<DriverInfo>(), new("amd64", 10, 0, 26300));
+        Assert(result.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incomplete &&
+               !result.Candidates.Single().CanPrepareInstallation &&
+               result.Candidates.Single().Reasons.Any(reason => reason.Contains("INF de driver PnP", StringComparison.OrdinalIgnoreCase)),
+            "an auxiliary INF selected directly must be reported as incomplete and must not be treated as a driver package");
+    });
+}
+
+static async Task DriverInstallPreviewAndDefaultPolicyAreSafe()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "local-driver.zip");
+        CreateSampleDriverZip(zipPath);
+        const string targetId = "PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001";
+        var device = new DriverInfo("Sample Ethernet", "PCI\\INSTANCE-1", "Current vendor", "1.2.3.4", null,
+            "old.inf", true, "Current signer", 0, HardwareIds: [targetId]);
+        using var analysis = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(zipPath, [device], new("x64", 10, 0, 26300));
+        var candidate = analysis.Candidates.Single();
+        var inventory = new FakeDriverInventoryService([device]);
+        var signatureVerifier = new FakeDriverPackageSignatureVerifier();
+        var installer = new FakeDriverPackageInstaller();
+        var consent = new PlanConsentService();
+        var journal = new OperationJournalCoordinator(consent);
+        var store = new JsonOperationJournalStore(Path.Combine(directory, "history"));
+        var blockedService = new DriverPackageInstallationService(
+            inventory, installer, signatureVerifier, store, consent, journal,
+            new BlockedDriverPackageMutationPolicy("blocked for tests"));
+        var review = blockedService.CreateReview(candidate, device, new(true, "x64", 26300));
+        Assert(review.RequiredPermissions.Contains("Administrador", StringComparison.Ordinal) &&
+               review.PossibleImpact.Contains("pode cair", StringComparison.OrdinalIgnoreCase) &&
+               review.PossibleImpact.Contains("reinicialização", StringComparison.OrdinalIgnoreCase) &&
+               review.RecoveryLimits.Contains("não garante recuperação", StringComparison.OrdinalIgnoreCase),
+            "preview should communicate privilege, likely network impact and recovery limits");
+        await AssertThrowsAsync<InvalidOperationException>(() => blockedService.CaptureAsync(review, consequencesAccepted: false));
+        Assert((await store.LoadAllAsync()).Count == 0, "declined consent should not create a history capture");
+
+        var capture = await blockedService.CaptureAsync(review, consequencesAccepted: true);
+        Assert(capture.State == JournalOperationState.SnapshotsCaptured && capture.Consent?.CanAuthorizeRealApplication == false,
+            "accepted consent and read-only baseline should reuse the shared journal without authorizing mutation");
+        var blocked = await blockedService.StageToDriverStoreAsync(review, capture.OperationId);
+        Assert(blocked.Status == DriverPackageInstallStepStatus.Blocked && installer.StageCalls == 0,
+            "default production mutation policy should block staging before calling the backend");
+
+        var enabledService = new DriverPackageInstallationService(
+            inventory, installer, signatureVerifier, store, consent, journal, new TestEnabledDriverMutationPolicy());
+        var secondReview = enabledService.CreateReview(candidate, device, new(true, "x64", 26300));
+        var secondCapture = await enabledService.CaptureAsync(secondReview, consequencesAccepted: true);
+        var staged = await enabledService.StageToDriverStoreAsync(secondReview, secondCapture.OperationId);
+        Assert(staged.Status == DriverPackageInstallStepStatus.DriverStoreStagedNotAssociated,
+            "a successful simulated stage must be reported separately from any device association");
+        var journalAfterStage = await store.LoadAsync(secondCapture.OperationId);
+        Assert(journalAfterStage?.Events.Any(item => item.EventType == "DriverPackageStagedToDriverStore") == true,
+            "stage-only outcome should be recorded in the existing operation history");
+        var associated = await enabledService.InstallOnMatchingDeviceAsync(secondReview, secondCapture.OperationId);
+        Assert(associated.Status == DriverPackageInstallStepStatus.DeviceAssociationNotVerified && installer.InstallCalls == 1,
+            "an unchanged simulated inventory must leave device association explicitly unverified after backend success");
+    });
+}
+
+static void CreateSampleDriverZip(string path, bool includeDriverBinary = true)
+{
+    using var stream = File.Create(path);
+    using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
+    Add("sample.inf", SampleDriverInf("PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001"));
+    Add("sample.cat", "catalog placeholder; test verifier is injected");
+    if (includeDriverBinary) Add("sample.sys", "test payload bytes");
+    Add("setup.exe", "dummy bytes; must never be executed");
+    Add("Autorun.inf", "[autorun]\r\nopen=setup.exe\r\n");
+
+    void Add(string name, string content)
+    {
+        var entry = archive.CreateEntry(name, CompressionLevel.Optimal);
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write(content);
+    }
+}
+
+static string SampleDriverInf(string hardwareId) => $"""
+    [Version]
+    Signature="$Windows NT$"
+    Class=Net
+    Provider=Sample Provider
+    DriverVer=01/01/2025,1.2.3.4
+    CatalogFile=sample.cat
+    [Manufacturer]
+    %Maker%=Models,NTamd64.10.0...22000
+    [Models.NTamd64.10.0...22000]
+    %Device%=Install,{hardwareId}
+    [Install]
+    CopyFiles=Driver.Copy
+    [Driver.Copy]
+    sample.sys
+    [SourceDisksFiles]
+    sample.sys=1
+    [Strings]
+    Maker="Sample"
+    Device="Sample Device"
+    """;
 
 static void CatalogRejectsDuplicateIds()
 {
@@ -2509,4 +2763,53 @@ sealed class FaultInjectingJournalStorage : IOperationJournalStorage
 
     public Task<byte[]> ReadAllBytesAsync(string path, CancellationToken cancellationToken) =>
         _inner.ReadAllBytesAsync(path, cancellationToken);
+}
+
+sealed class FakeDriverPackageSignatureVerifier(DriverPackageVerificationStatus status = DriverPackageVerificationStatus.Valid)
+    : IDriverPackageSignatureVerifier
+{
+    public DriverPackageSignatureResult VerifyInf(string infPath, string catalogPath) =>
+        new(status, status == DriverPackageVerificationStatus.Valid ? "Synthetic test signer" : null,
+            status == DriverPackageVerificationStatus.Valid ? "simulated INF membership" : "simulated signature failure");
+
+    public DriverPackageSignatureResult VerifyCatalogMember(string filePath, string catalogPath) =>
+        new(status, null, status == DriverPackageVerificationStatus.Valid ? "simulated catalog member" : "simulated member failure");
+}
+
+sealed class FakeDriverInventoryService(IReadOnlyList<DriverInfo> drivers) : IDriverInventoryService
+{
+    public IReadOnlyList<DriverInfo> Drivers { get; set; } = drivers;
+    public InventoryAvailability Availability { get; set; } = InventoryAvailability.Available;
+
+    public Task<DriverInventoryResult> CollectAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new DriverInventoryResult(DateTimeOffset.UtcNow, Availability, Drivers, Array.Empty<string>(), null));
+    }
+}
+
+sealed class FakeDriverPackageInstaller : IDriverPackageInstaller
+{
+    public int StageCalls { get; private set; }
+    public int InstallCalls { get; private set; }
+
+    public Task<DriverPackageCommandResult> StageToDriverStoreAsync(string infPath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        StageCalls++;
+        return Task.FromResult(new DriverPackageCommandResult(true, 0, null, "simulated staging success"));
+    }
+
+    public Task<DriverPackageCommandResult> InstallOnMatchingDeviceAsync(string infPath, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        InstallCalls++;
+        return Task.FromResult(new DriverPackageCommandResult(true, 0, null, "simulated install command success"));
+    }
+}
+
+sealed class TestEnabledDriverMutationPolicy : IDriverPackageMutationPolicy
+{
+    public bool IsEnabled => true;
+    public string BlockReason => string.Empty;
 }

@@ -711,3 +711,56 @@ A janela foi capturada diretamente com `PrintWindow`, sem trazê-la para a frent
 ### Próxima etapa
 
 A próxima entrega pequena prevista é ampliar a conferência offline de pacotes locais desconhecidos para ler INF/catálogo, validar assinatura e corresponder Hardware IDs, arquitetura e Windows, ainda sem executar ou instalar. Depois, permanece necessário desenhar um fluxo de instalação segura por dispositivo, com recuperação; os candidatos atuais não autorizam instalação.
+
+## 28. Análise genérica de pacote local e preparação assistida de driver — 2026-10-20
+
+Continuação a partir do estado do Preview R2, preservado. Não gerei outro instalador/ZIP nem alterei os artefatos R2. O aplicativo Preview já instalado/aberto não foi substituído. Nenhum instalador OEM foi executado e nenhum driver foi instalado, staged, associado, removido ou substituído.
+
+### Implementação
+
+- `LocalDriverPackageAnalyzer` analisa `.inf` e `.zip` localmente, sem executar conteúdo. ZIP limitado a 128 MiB compactado, 512 MiB expandido, 128 MiB por arquivo e 4096 entradas; rejeita traversal/absolutos/duplicados/symlinks, confere CRC32 e comprimentos e extrai somente para uma pasta GUID própria em `%TEMP%\CalixtoOptimizer\DriverAnalysis`. Arquivos são removidos ao descartar a análise. INF direto é lido sem extrair ou modificar a pasta original; links/reparse points são ignorados e há limites equivalentes.
+- O parser cruza Hardware IDs/Compatible IDs PnP, arquitetura, decoração de OS/build e ProductType/SuiteMask quando compreendidos. INF auxiliar (`Autorun.inf`) não aparece como driver PnP; no seletor direto, o resultado explica que o arquivo é incompleto. Correspondência só por Compatible ID, múltiplos devnodes e sintaxe não entendida não geram prévia instalável.
+- Para arquivo aceito como candidato, `SetupVerifyInfFileW` verifica associação/assinatura INF-catálogo. Arquivos declarados por `SourceDisksFiles` são localizados sem ambiguidade, verificados como membros do catálogo por WinTrust e recebem hashes SHA-256. Arquivos necessários ausentes ou diretivas que o parser não resolva deixam resultado como **Análise incompleta**. A assinatura não é usada como prova de adequação funcional.
+- Resultados discriminam **Compatível segundo verificações**, **Incompatível**, **Ambíguo** e **Análise incompleta**, com razões por INF. A tela Drivers apresenta os candidatos, IDs resumidos, assinatura/catálogo, integridade, origem do arquivo, detalhes do driver atual e prévia de efeitos/permissões/recuperação.
+- `DriverPackageInstallationService` reutiliza catálogo/plano, consentimento e diário existentes; captura leitura atual, hash do arquivo de origem (ZIP completo ou INF escolhido) e hashes separados dos arquivos necessários antes de qualquer etapa. A política de produção é `BlockedDriverPackageMutationPolicy`. Consentir e capturar não autoriza a execução.
+- `PnpUtilDriverPackageInstaller` implementa separadamente `/add-driver <inf>` (staging no Driver Store) e `/add-driver <inf> /install` (instalação em dispositivos correspondentes). Não executa Setup OEM, não deleta pacotes, não usa `/force`/`/reboot` e não força downgrade. Exige processo já elevado, sem worker/UAC. A produção permanece bloqueada antes da chamada. O serviço relê o INF ativo no mesmo devnode após a etapa de associação, mas associação reportada não comprova que a função esteja operacional.
+- Limite conhecido: o comando documentado `/install` age sobre todo dispositivo correspondente, não aceita instance ID de um único devnode. A verificação exige um alvo único e relê o estado antes do comando, porém uma mudança concorrente/hot-plug continua possível. Não liberar essa associação real sem restringir o escopo por devnode ou obter aprovação explícita para o alcance demonstrado e testar em ambiente recuperável.
+
+### Validação real dos dois ZIPs ASUS nesta máquina
+
+Probe temporário usou a leitura WMI real de dispositivos e APIs nativas do Windows apenas para verificação; não chamou PnPUtil. Inventário disponível: 193 linhas, Windows `10.0.26300.0`, x64/`amd64`.
+
+| Pacote revisado localmente | Estado do analisador nesta compilação | Evidência e limite |
+| --- | --- | --- |
+| ASUS LAN RTL8111H `1168.27.50.919` (`3B6946C79C745B6E5B2F9E08A9CF6F291EE5C9951F85860753F820F41D76F96D`) | `rt68cx21x64.inf`: compatível segundo verificações; um Hardware ID exato; catálogo/INF e payload confirmados. | 722 entradas/34.802.917 bytes. Assinante Microsoft Windows Hardware Compatibility Publisher. A origem ASUS é sustentada pelo hash oficial publicado coincidente. Não é veredito de superioridade/necessidade nem teste de instalação/funcionamento. |
+| ASUS Wi-Fi RTL8821CE `2024.10.138.3` (`E061EBD3E77F54DA07ECED9876DB54DCAA46E871DB4015FEE6EC1F2987535647`) | `netrtwlane.inf`: **incompleto**. `Autorun.inf` foi ignorado como auxiliar; um Hardware ID exato e catálogo/INF assinado foram detectados. | 37 entradas/31.111.699 bytes. `rtlCoInst.dll` e `rtlCoInst.dat` declarados em `SourceDisksFiles` não estão no ZIP; staging/prévia não elegíveis. ASUS não publica hash do ZIP Wi-Fi; hash é apenas fingerprint da cópia local. |
+
+Os resultados completos e os candidatos ASUS estão em `docs/DRIVER-ASSISTED-INSTALLATION.md`. Pacotes e extrações continuam ignorados pelo Git. Nenhuma configuração do Windows foi alterada.
+
+### Build, testes e validação visual
+
+- Raiz Git: `C:\Users\Computador\Documents\meu otimizador`; branch `main`, Preview R2 preservado. SDK explícito `C:\Users\Computador\AppData\Local\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: **sucesso**, 0 avisos, 0 erros.
+- Harness `Optimizer.Core.Tests` Release: **100/100** verificações. ZIP traversal/limites, raiz do ZIP, INF auxiliar, IDs exatos/genéricos, incompatibilidade, ambiguidade, payload ausente, hash, preview/consentimento/diário e separação staging/associação são checks de modelo com verificadores/instaladores simulados. Eles não comprovam instalação real de drivers.
+- Validação real separada: leitura WMI atual (193 linhas), assinatura/membership via SetupAPI/WinTrust e conteúdo dos dois ZIPs locais. LAN passou nos checks implementados; Wi-Fi permaneceu incompleto pelos arquivos ausentes. Nenhuma chamada PnPUtil, Setup ou API de instalação ocorreu.
+- A solução WPF compilou, mas a janela desta alteração **não foi aberta nem inspecionada**; integração visual compilada não é validação visual. A antiga instalação R2 permanece preservada e não contém este código mais novo.
+
+### Matriz atual do plano oficial
+
+| Fase/capacidade | Leitura/diagnóstico | Plano/revisão | Operação real | Estado e pendências |
+| --- | --- | --- | --- | --- |
+| 0 — Ambiente | Host Windows x64, SDK e hardware locais identificados. | Limites de segurança documentados. | Builds/testes locais. | **Parcial**: nenhum outro PC. |
+| 1 — Inventário | WMI/PnP, energia, rede e identidade Windows consultados nos módulos implementados. | Inventário é leitura. | Nenhuma otimização aplicada nesta entrega. | **Concluído neste host no escopo consultado**; permissões e outros PCs pendentes. |
+| 2 — Catálogo, perfis, consentimento, histórico/recuperação | Estado real disponível onde existe getter. | Perfis, consequências, consentimento e diário integrados em parte. | Harness simulado; snapshots não são backups do Windows. | **Parcial**: catálogo real útil e recuperação operacional limitados. |
+| 3 — Ajustes reversíveis iniciais | VIDEOIDLE e energia têm leitura; prioridade/processo e preferência de Registro têm fluxo preparado. | Planos/capturas específicos existentes. | Energia/Registro seguem bloqueados; probe de prioridade aprovado anteriormente é um teste isolado, não autorização permanente. | **Parcial**; não foi aplicado ajuste nesta etapa. |
+| 4 — Energia, Registro, políticas, processos e rede | Leituras e telas variam por módulo; rede ativa foi validada em etapa anterior. | Alguns módulos têm revisão/consentimento/histórico; políticas continuam limitadas. | Alterações reais de energia/Registro/rede/prioridade não autorizadas aqui e/ou bloqueadas por padrão. | **Parcial**: amplitude e validação visual pendentes; Processo ainda tem checklist visual histórico. |
+| 5 — GPU | Inventário de GPU presente; configurações nativas acessíveis. | Preferência por app não comprovada pelo app. | Nenhuma escrita/telemetria da GPU. | **Parcial**; seleção configurada e uso efetivo não são equivalentes nem consultados. |
+| 6 — Drivers assistidos | Inventário atual e análise real de dois ZIPs ASUS: LAN compatível segundo checks; Wi-Fi incompleto. | Tela integrada no código; revisão exibe dispositivo, driver, pacote, permissões, impactos e recuperação. Captura/consentimento compartilham histórico. | Staging/associação implementados no backend PnPUtil, mas bloqueados por política padrão; não chamamos o backend real. Sem remoção/downgrade automático. | **Parcial, não concluído**: limite do `/install` por dispositivo, inspeção visual desta alteração, staging real, associação, validação funcional, rollback/desinstalação e outro PC pendentes. |
+| 7 — Publicação/Setup | Artefatos R2 previamente registrados. | R2 autocontido e upgrade prévio testado. | Nenhum novo pacote gerado nesta fatia. | **Parcial**: instalação limpa, desinstalação R2 e outra máquina pendentes; R2 não contém estas mudanças. |
+| 8 — Firmware/controles específicos | Sem matriz por equipamento. | Integração não iniciada. | Não há escrita em BIOS/firmware/tensão/frequência. | **Não iniciado**; requisitos específicos seguem bloqueando. |
+
+### Próximo teste candidato e pendências preservadas
+
+Nenhum teste real de driver está autorizado por esta entrega. Para solicitar um teste futuro, apresentar novamente os dados atuais do pacote LAN, seu estado de driver e alvo, resolver/mitigar o alcance global de `/install`, e submeter um plano para VM ou máquina sobressalente com rede alternativa, exportação do driver atual e console local. Executar primeiro staging, verificar Driver Store, obter segunda aprovação para associação, reler o mesmo devnode e testar conectividade sem reinício automático; sem rollback automático. Se não houver ambiente recuperável, não pedir alteração neste PC.
+
+Permanecem pendentes: inspeção visual da interface deste build; instalação limpa e desinstalação do Preview/Setup R2; teste de outro PC; validação funcional real de associação de driver, rede após troca e recuperação. A instalação limpa/desinstalação de R2 não pode ser inferida do upgrade anterior.

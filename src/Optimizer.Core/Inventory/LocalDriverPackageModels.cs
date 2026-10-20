@@ -1,0 +1,200 @@
+using Optimizer.Core.Adjustments;
+
+namespace Optimizer.Core.Inventory;
+
+public enum DriverPackageAnalysisOutcome
+{
+    CompatibleAccordingToChecks,
+    Incompatible,
+    Ambiguous,
+    Incomplete
+}
+
+public enum DriverPackageMatchStrength
+{
+    ExactHardwareId,
+    CompatibleIdOnly
+}
+
+public enum DriverPackageVerificationStatus
+{
+    Valid,
+    Invalid,
+    Unavailable
+}
+
+public sealed record DriverPackageTargetPlatform(
+    string Architecture,
+    int? OsMajorVersion,
+    int? OsMinorVersion,
+    int? WindowsBuild,
+    int? ProductType = null);
+
+public sealed record DriverPackageSignatureResult(
+    DriverPackageVerificationStatus Status,
+    string? Signer,
+    string Detail);
+
+public interface IDriverPackageSignatureVerifier
+{
+    DriverPackageSignatureResult VerifyInf(string infPath, string catalogPath);
+    DriverPackageSignatureResult VerifyCatalogMember(string filePath, string catalogPath);
+}
+
+public sealed record DriverPackageDeviceMatch(
+    DriverInfo Device,
+    DriverPackageMatchStrength Strength,
+    string MatchedId);
+
+public sealed record DriverPackageInfCandidate(
+    string InfName,
+    string InfPath,
+    string? Provider,
+    string? DriverVersion,
+    string? CatalogName,
+    string? CatalogSigner,
+    DriverPackageVerificationStatus SignatureStatus,
+    DriverPackageAnalysisOutcome Outcome,
+    IReadOnlyList<DriverPackageDeviceMatch> DeviceMatches,
+    IReadOnlyList<string> RequiredPackageFiles,
+    IReadOnlyList<string> Reasons,
+    string? SourceSha256 = null,
+    string? SourceFileName = null,
+    string? InfSha256 = null,
+    IReadOnlyDictionary<string, string>? PayloadFilesSha256 = null,
+    string? PackageRootPath = null)
+{
+    public string OutcomeLabel => Outcome switch
+    {
+        DriverPackageAnalysisOutcome.CompatibleAccordingToChecks => "Compatível segundo as verificações realizadas",
+        DriverPackageAnalysisOutcome.Incompatible => "Incompatível com os dispositivos/Windows verificados",
+        DriverPackageAnalysisOutcome.Ambiguous => "Correspondência ambígua; instalação bloqueada",
+        _ => "Análise incompleta; instalação bloqueada"
+    };
+
+    public string SignatureStatusLabel => SignatureStatus switch
+    {
+        DriverPackageVerificationStatus.Valid => "válida nas APIs do Windows",
+        DriverPackageVerificationStatus.Invalid => "inválida/rejeitada",
+        _ => "não verificada"
+    };
+
+    public string SourceHashLabel => (SourceFileName ?? InfName).EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+        ? "SHA-256 do ZIP de origem"
+        : "SHA-256 do INF selecionado";
+
+    public bool CanPrepareInstallation => Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks &&
+        SignatureStatus == DriverPackageVerificationStatus.Valid &&
+        DeviceMatches.Count == 1 && DeviceMatches[0].Strength == DriverPackageMatchStrength.ExactHardwareId;
+
+    public string TargetSummary => DeviceMatches.Count switch
+    {
+        0 => "Nenhum dispositivo do inventário local corresponde.",
+        1 => $"{DeviceMatches[0].Device.DeviceName} · {DeviceMatches[0].Strength}",
+        _ => $"{DeviceMatches.Count} dispositivos correspondem; escolha e revisão adicionais são necessárias."
+    };
+
+    public string ReasonsSummary => Reasons.Count == 0
+        ? "As verificações documentadas para este resultado foram concluídas."
+        : string.Join(" ", Reasons);
+}
+
+public sealed class LocalDriverPackageAnalysisResult : IDisposable
+{
+    private readonly string? _ownedExtractionDirectory;
+    private bool _disposed;
+
+    public LocalDriverPackageAnalysisResult(
+        string sourceFileName,
+        string sourceSha256,
+        long expandedBytes,
+        int archiveEntryCount,
+        IReadOnlyList<DriverPackageInfCandidate> candidates,
+        string integritySummary,
+        string? ownedExtractionDirectory)
+    {
+        SourceFileName = sourceFileName;
+        SourceSha256 = sourceSha256;
+        ExpandedBytes = expandedBytes;
+        ArchiveEntryCount = archiveEntryCount;
+        Candidates = candidates;
+        IntegritySummary = integritySummary;
+        _ownedExtractionDirectory = ownedExtractionDirectory;
+    }
+
+    public string SourceFileName { get; }
+    public string SourceSha256 { get; }
+    public long ExpandedBytes { get; }
+    public int ArchiveEntryCount { get; }
+    public IReadOnlyList<DriverPackageInfCandidate> Candidates { get; }
+    public string IntegritySummary { get; }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_ownedExtractionDirectory is null) return;
+
+        var tempRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "CalixtoOptimizer", "DriverAnalysis")) + Path.DirectorySeparatorChar;
+        var owned = Path.GetFullPath(_ownedExtractionDirectory);
+        if (owned.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            try { Directory.Delete(owned, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+}
+
+public sealed record DriverPackageInstallReview(
+    DriverPackageInfCandidate Candidate,
+    string DeviceInstanceId,
+    DriverInfo CurrentDriver,
+    AdjustmentPlan Plan,
+    DateTimeOffset ReviewedAtUtc,
+    string RequiredPermissions,
+    string PossibleImpact,
+    string RecoveryLimits);
+
+public enum DriverPackageInstallStepStatus
+{
+    Blocked,
+    RefusedByStateConflict,
+    AccessDenied,
+    Failed,
+    DriverStoreStagedNotAssociated,
+    DeviceAssociationNotVerified,
+    DeviceAssociationVerified
+}
+
+public sealed record DriverPackageInstallStepResult(
+    DriverPackageInstallStepStatus Status,
+    int? ExitCode,
+    bool? RebootMayBeRequired,
+    string Detail);
+
+public sealed record DriverPackageCommandResult(
+    bool Succeeded,
+    int? ExitCode,
+    bool? RebootMayBeRequired,
+    string Detail);
+
+public interface IDriverPackageInstaller
+{
+    Task<DriverPackageCommandResult> StageToDriverStoreAsync(string infPath, CancellationToken cancellationToken = default);
+    Task<DriverPackageCommandResult> InstallOnMatchingDeviceAsync(string infPath, CancellationToken cancellationToken = default);
+}
+
+public interface IDriverPackageMutationPolicy
+{
+    bool IsEnabled { get; }
+    string BlockReason { get; }
+}
+
+public sealed class BlockedDriverPackageMutationPolicy(string blockReason) : IDriverPackageMutationPolicy
+{
+    public bool IsEnabled => false;
+    public string BlockReason { get; } = string.IsNullOrWhiteSpace(blockReason)
+        ? "A instalação real de drivers está bloqueada nesta compilação."
+        : blockReason;
+}

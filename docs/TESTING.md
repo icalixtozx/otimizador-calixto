@@ -260,6 +260,22 @@ O harness Core cobre correspondência por Hardware ID exato, diferenciação de 
 - A integração visual foi compilada pelo build WPF, mas a janela não foi aberta ou inspecionada. Nenhuma tela é declarada visualmente aprovada.
 - A ação **Conferir ZIP local** calcula SHA-256 sem extrair ou executar. Só reconhece hashes dos arquivos revisados; hash desconhecido não é validado. Esse fluxo não prova o conteúdo de ZIPs diferentes.
 
+## Análise genérica e preparação bloqueada de driver — 2026-10-20
+
+### Build e harness
+
+- Raiz: `C:\Users\Computador\Documents\meu otimizador`; SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: sucesso, 0 avisos/0 erros.
+- `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **100/100** verificações. Casos do pacote usam verificadores e instaladores falsos: ZIP comum/root-level, traversal, limite de tamanho, `Autorun.inf`, INF direto, Hardware ID exato, Compatible ID, conflito/ambiguidade, incompatibilidade, payload ausente, preview, captura e política padrão bloqueada. A prova de staging/associação no harness não chama PnPUtil.
+
+### Verificações reais do Windows e dos arquivos locais
+
+- Probe temporário leu WMI/PnP sem escrita: inventário `Available`, 193 linhas; Windows `10.0.26300.0`, x64 (`amd64`). IDs completos/identificadores pessoais não foram registrados neste relatório.
+- `LocalDriverPackageAnalyzer` foi executado nos dois ZIPs ASUS ignorados pelo Git. LAN: 722 entradas, 34.802.917 bytes; hash coincide com valor ASUS, correspondência exata única, INF/catálogo/payload passaram nas APIs de assinatura/integridade, resultado “compatível segundo verificações”. Wi-Fi: 37 entradas, 31.111.699 bytes; hash local somente, Hardware ID exato e INF/catálogo válidos, mas `rtlCoInst.dll` e `rtlCoInst.dat` declarados no INF não estão no ZIP; resultado “análise incompleta”.
+- Esses resultados reais não provam seleção de rank, instalação ou operação de hardware. Nenhum instalador OEM, PnPUtil ou API de instalação foi iniciado. O serviço de produção retornaria bloqueado antes de chamar o backend. Nenhuma alteração de driver/Windows foi feita.
+- Compilação WPF não é validação visual; a janela não foi aberta para esta versão do código. A Preview R2 em uso foi preservada e não inclui estas mudanças.
+- Instalação limpa, atualização funcional de driver, desinstalação/rollback de driver e teste em outro PC estão pendentes. Também seguem pendentes instalação limpa/desinstalação do Setup R2.
+
 ## Preview autocontido R2 — upgrade e validação visual (2026-10-20)
 
 ### Build e harness
