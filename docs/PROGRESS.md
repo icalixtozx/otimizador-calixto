@@ -1091,3 +1091,31 @@ Publicação nova após o crash confirmado em R3. Commit de origem: `cf3fd1ebbc9
 - Inno Setup 7.1.0 compilou `packaging/CalixtoOptimizer-Preview-20261020-r4.iss` com sucesso (“Non-commercial use only” informado pelo compilador). Instalador: `artifacts/installer-preview-20261020-r4/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r4-win-x64-setup.exe`; 46.889.238 bytes; SHA-256 `735B685A4EF208D01A8CDD9938235103FF7A6EC6E9C9140F32D72CA20C528B0D`; assinatura `NotSigned`.
 - Executável para abrir após extrair: `C:\\Users\\Computador\\Documents\\meu otimizador\\artifacts\\preview-v0.6.0-experimental-selfcontained-20261020-r4\\CalixtoOptimizer-Preview-20261020-R4\\Optimizer.App.exe`. Nenhum app foi aberto/fechado durante a produção. Instalação, atualização, desinstalação e atalho não foram testados; compilação do Setup não comprova esses fluxos.
 - O hash do ZIP e instalador R3 foi conferido e permanece igual aos valores documentados na seção 40. A compilação/publicação R4 não comprova que Drivers abre em runtime; inspeção manual da R4 é necessária. O histórico do runner também não apareceu nas capturas R3 e continua uma pendência independente.
+
+## 43. Integração visual do histórico do ciclo de energia — 2026-10-20
+
+O usuário confirmou manualmente que **Drivers, Processos, Registro, Rede, Programas e Energia** da Preview R4 abriram e permitiram navegação sem fechar o aplicativo. Esse relato comprova abertura/navegação dessas páginas; não aprova comportamento funcional de todos os controles, leituras, consentimentos ou operações. A página/linha de Histórico ainda não foi confirmada visualmente.
+
+### Diagnóstico do registro ausente na captura visual R3
+
+- O teste anterior chamava `PowerModePanelViewModel.LoadHistoryAsync()` e confirmava a coleção carregada, mas não construía/renderizava a página WPF. Portanto, ele não comprovava que a linha estava visível.
+- A captura R3 enviada mostra a lista vazia. A implementação anterior não ligava à tela de Histórico o status de erro do carregador de modo de energia; o placeholder “nenhuma captura” era exibido sempre que a coleção estava vazia, mesmo sem confirmação de que a leitura do diário tivesse sido concluída. Assim, falha de leitura e diário realmente vazio podiam parecer iguais. O código também disparava leituras redundantes na inicialização, navegação e evento `Loaded` da aba.
+- A leitura atual do diário local, sem escrita, encontrou **dois registros válidos**: um permanece em `Captured` (captura persistida, não aplicada) e o registro do ciclo mais recente está em `Reverted` (restauração confirmada por leitura posterior). `Optimizer.Core.Tests.dll --power-mode-history-readonly` recarregou os dois pela `PowerModePanelViewModel` usada pela interface, sem chamar getters/setters de energia. Isso valida os arquivos e a coleção da view model atual; não substitui a inspeção visual WPF.
+- Não há evidência para atribuir a ausência na captura R3 a corrupção, caminho alternativo ou estado do Windows. A causa exata daquele quadro não pode ser recuperada apenas pela probe anterior. O defeito comprovado era a ausência de confirmação/erro visível no fluxo visual, que agora foi corrigida.
+
+### Correção e regressão
+
+- O Histórico agora mostra o resultado e a contagem da leitura, mantém linhas anteriores se uma atualização falhar e informa que uma lista vazia após falha não comprova ausência de registros. O placeholder de lista vazia só aparece após uma leitura bem-sucedida.
+- Há um botão **Atualizar histórico**. A carga é iniciada na navegação, sem o evento `Loaded` duplicado; as atualizações são serializadas.
+- Cada resumo real começa com **“Proposta capturada”**; o rótulo do estado separa `CAPTURA REAL PERSISTIDA · NÃO APLICADA`, aplicação confirmada por leitura e restauração confirmada por leitura. A simulação continua em lista local separada com selo **DADOS SINTÉTICOS**. Capturas não são apresentadas como ajustes aplicados nem backups do Windows.
+- Regressões executam a view model da interface com armazenamento temporário: percorrem Captured → Verified → Reverted, testam rótulos/resumos e a lista sintética separada, e injetam JSON corrompido para garantir que erro não seja mostrado como lista vazia confirmada. Nenhum teste usa o diário real nem altera energia.
+- Preview R4 e seus ZIP/EXE não foram reconstruídos nem sobrescritos. Como a correção altera o fluxo visual, a versão de desenvolvimento passou a se identificar como R5; foi preparada uma publicação portátil R5 separada para inspeção manual. A interface R5 ainda não foi aberta por automação nem validada visualmente pelo usuário nesta etapa.
+
+### Build e validações
+
+- Ambiente: PowerShell em `C:\Users\Computador\Documents\meu otimizador`, SDK explícito `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`. Build completo Release: sucesso, **0 avisos e 0 erros**.
+- Harness: **129/129 checks simulados aprovados**. Os dois novos checks exercitam a view model com adaptadores de energia falsos; não demonstram operação real no Windows.
+- Probe read-only do histórico real: dois registros carregados pela view model, com estados `PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA` e `CAPTURA REAL PERSISTIDA · NÃO APLICADA`. Apenas os metadados/rótulos e datas foram impressos; nenhum identificador da operação foi publicado. Nenhum arquivo foi alterado.
+- Nenhuma alteração de energia, Registro, rede, prioridades, políticas ou drivers foi executada. WinGet continua indisponível neste perfil. Drivers assistidos, validação em outro computador e inspeção visual da linha R5 permanecem pendentes.
+- Publicação portátil R5 autocontida Windows x64: `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r5/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r5-win-x64-portable.zip`, 406 arquivos, 65.745.029 bytes, SHA-256 `D97434C6A92A849294A6CE0DA2B1481629104F4A362D739684C2A58F015C35E5`. A pasta contém o apphost, .NET e WindowsDesktop runtime; o assembly identifica o commit `016f795e3ce549ceb52658973dd0d6d11c6cfae1`. Nenhum instalador R5 foi gerado.
+- Os hashes R4 foram conferidos depois da publicação R5 e continuam ZIP `79512E849B4B354AC6DF7FAF1619E8A50973B0200576AF7C37BA919A8E40E50A` e Setup `735B685A4EF208D01A8CDD9938235103FF7A6EC6E9C9140F32D72CA20C528B0D`; os arquivos R4 não foram reconstruídos nem sobrescritos.
