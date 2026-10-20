@@ -83,3 +83,39 @@ Fontes oficiais: [PowerGet AC](https://learn.microsoft.com/en-us/windows/win32/a
 - Nesta etapa os getters foram executados localmente e uma captura real foi gravada/reaberta em processos separados; nenhum setter foi chamado. O fluxo visual do painel de modo de energia não foi percorrido até o fim, então a apresentação completa de consequências/autorização/histórico ainda precisa de validação de interface com o app em primeiro plano.
 
 O conteúdo do diário é editável pelo usuário local; o fingerprint só detecta corrupção/divergência acidental, não é assinatura. Nenhum componente elevado pode confiar nesse arquivo como canal de comando.
+# Registro e políticas — primeiro candidato documentado
+
+## Candidato: exibir extensões de nome de arquivo
+
+**Categoria:** preferência de interface do Explorador de Arquivos. Não é ajuste de desempenho e não há alegação de ganho de FPS.
+
+- **Finalidade:** mostrar `.txt`, `.exe`, `.pdf` e demais extensões conhecidas nos nomes exibidos pelo Explorador. A documentação de suporte da Microsoft descreve essa preferência no Windows 10 e Windows 11. A extensão ajuda a identificar o tipo do arquivo; mudar o texto da extensão não converte o formato.
+- **Mapeamento técnico usado pelo protótipo:** hive `HKEY_CURRENT_USER`; caminho `Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`; valor `HideFileExt`; tipo alvo `REG_DWORD`; `0` significa exibir e `1` significa ocultar. A implementação `WindowsExplorer` do repositório Microsoft `winget-dsc` usa esse caminho/valor e interpreta a ausência do valor como “exibir”. A página de suporte da Microsoft confirma a preferência da interface, mas não publica um contrato Win32 estável para esse valor; o mapeamento é evidência de uma implementação Microsoft mantida, não garantia de API para terceiros.
+- **Visão:** `Registry64` em Windows x64, alinhada ao Explorador de Arquivos x64. A implementação recusa outros sistemas/visões; não usa `Wow6432Node` nem redireciona a escrita para a visão de 32 bits.
+- **Compatibilidade:** a preferência existe na interface documentada para Windows 10 e 11. O Calixto suporta para revisão somente Windows x64 e não identifica uma edição mínima específica além do Windows cliente. A fonte não lista um build mínimo. O suporte de Windows 10 terminou em 14/10/2025; a existência da preferência não significa que essa versão continue recebendo correções de segurança.
+- **Consequências:** nomes de arquivos passam a mostrar extensões. Isso pode alterar a apresentação e reduzir ambiguidade visual; não renomeia arquivos. Não solicita elevação: o escopo é o perfil do usuário atual. ACLs podem negar acesso, caso em que a operação deve parar. Nenhum reinício do Windows é esperado; o motor verifica somente o valor do Registro. A atualização visual do Explorador após escrita direta não foi validada pelo aplicativo; não reinicia `explorer.exe` automaticamente.
+- **Captura:** registrar se a chave existe, se o valor existe e, se existir, seu tipo e dado exatos. Ausência não equivale a `REG_DWORD 0` no snapshot, ainda que a implementação Microsoft citada modele a ausência como a preferência “exibir”.
+- **Aplicação:** reler imediatamente antes; recusar estado diferente, chave ausente, gerenciamento organizacional não verificável, acesso negado, consentimento incompleto ou política bloqueada. Escrever apenas `REG_DWORD 0` no valor nomeado. A intenção é persistida no diário compartilhado antes da chamada de escrita; a leitura posterior precisa confirmar tipo e dado.
+- **Reversão:** reler e só prosseguir se o valor ainda for exatamente o alvo aplicado. Se o snapshot tinha um valor, restaurar o tipo e dado capturados. Se o snapshot dizia que o valor não existia, excluir somente `HideFileExt`, sem apagar a chave nem outros valores. O protótipo não cria a chave pai; se ela não existir, recusa a escrita. Uma alteração externa gera conflito e não é sobrescrita.
+- **Avaliação:** comparar a leitura do valor antes/depois e confirmar a exibição no Explorador manualmente. Isso avalia a preferência, não velocidade nem FPS.
+
+### Gestão organizacional e políticas
+
+O candidato fica em `HKCU\Software`, não em uma árvore `Policies`. Isso, sozinho, não prova que o valor seja livre de gerenciamento: scripts, Group Policy Preferences, MDM ou ferramentas corporativas podem voltar a definir preferências do usuário. A documentação ADMX da Microsoft explica que políticas compatíveis são mapeadas para valores do Registro e que Group Policy/MDM podem aplicar essas configurações. Uma chave sob `Policies` também não é prova isolada de que uma política suportada esteja ativa.
+
+O protótipo não tenta editar política nem promete detectar toda forma de gerenciamento. O adaptador Windows reporta gerenciamento como desconhecido; com esse estado, aplicação e reversão são recusadas. Uma futura execução requer revisão explícita de que o dispositivo/perfil não é administrado e, ainda assim, consulta nova, consentimento específico e confirmação da operação. Em dispositivo gerenciado, a preferência deve ser alterada pelo administrador no mecanismo de gestão correspondente.
+
+Fontes técnicas:
+
+- [Microsoft Support — extensões de nome de arquivo no Windows 10/11](https://support.microsoft.com/pt-br/windows/experience/storage-filemanagement/common-file-name-extensions-in-windows).
+- [Repositório Microsoft `winget-dsc` — recurso WindowsExplorer e mapeamento `HideFileExt`](https://github.com/microsoft/winget-dsc/blob/main/resources/Microsoft.Windows.Developer/Microsoft.Windows.Developer.psm1).
+- [Microsoft Learn — políticas baseadas em ADMX e associação a valores do Registro](https://learn.microsoft.com/windows/client-management/understanding-admx-backed-policies).
+- [Microsoft Learn — abrir o Registro numa visão especificada](https://learn.microsoft.com/dotnet/api/microsoft.win32.registrykey.openbasekey?view=net-10.0).
+
+**Estado desta etapa:** código e cenários simulados podem ser implementados com esse contrato restrito. Nenhuma chave de usuário ou chave de teste pode ser criada/alterada sem aprovação específica. Os testes automáticos desta etapa devem usar somente um adaptador falso em memória.
+
+### Procedimento proposto para um teste de integração isolado
+
+O teste futuro deve usar um runner de teste, não o valor funcional `HideFileExt`, e uma chave única gerada para cada execução: `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>`, valor `ProbeValue`, tipo `REG_DWORD`, visão `Registry64`. O runner deve confirmar que a chave GUID ainda não existe, criar a chave e o valor `0`, ler e comparar hive/visão/tipo/dado, mudar o mesmo valor para `1`, reler, excluir somente `ProbeValue`, confirmar que a chave GUID ficou vazia, removê-la e confirmar a ausência. Os pais `Software\CalixtoOptimizer\IntegrationTests` ficam intactos. Qualquer conteúdo inesperado interrompe o teste sem exclusão.
+
+Isso verifica as chamadas locais de Registro, a ACL do perfil e a visão 64 bits; não valida que o Explorador atualize sua apresentação. O runner/adapter de teste ainda precisa ser criado. A operação não será executada sem aprovação explícita para criar, alterar e remover somente essa chave temporária.

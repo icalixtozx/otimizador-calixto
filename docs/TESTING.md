@@ -162,3 +162,20 @@ Na etapa inicial de 2026-10-19 ainda não havia teste DNS/ICMP real; o teste rea
 - Escopo efetivo: somente o probe descartável. Não houve alteração em jogo, serviço, outro processo ou configuração de energia, rede, Registro, política, driver ou firmware. O resultado verifica o caminho real de captura/aplicação/verificação/restauração do serviço e adaptador nesta máquina e com esta instância; não valida a UI, outro computador ou outros tipos de processo.
 - O runner compilou com o SDK local 10.0.402, 0 avisos e 0 erros. Nenhuma compilação completa da solução nem reexecução do harness de 72 testes foi feita nesta etapa. Esses 72 continuam sendo testes simulados.
 - Validação visual da página **Processos** segue pendente; checklist manual acima.
+
+## Registro e políticas — protótipo simulado (2026-10-19)
+
+Build e harness foram executados no repositório `%USERPROFILE%\Downloads\CalixtoOptimizer`, em PowerShell, com o SDK explicitamente escolhido `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe` (`10.0.402`). `global.json` continua em `10.0.100` com `latestFeature`.
+
+```powershell
+& "$env:LOCALAPPDATA\dotnet-sdk-10.0.402\dotnet.exe" build .\CalixtoOptimizer.sln --configuration Release
+& "$env:LOCALAPPDATA\dotnet-sdk-10.0.402\dotnet.exe" run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build
+```
+
+Resultado observado: solução completa (WPF, Core, Windows, testes e probe) compilou com 0 avisos e 0 erros; harness passou **85/85** verificações. Treze verificações novas usam somente `FakeRegistryPreferenceAdapter` e storage de diário local de teste. Cobrem plano/consequência/compatibilidade x64; captura que distingue valor ausente de `REG_DWORD 0`; recusa de estado alterado desde a prévia; restauração de tipos `REG_SZ`, `REG_EXPAND_SZ`, `REG_DWORD`, `REG_QWORD`, `REG_MULTI_SZ`, `REG_BINARY` e `REG_NONE`; remoção apenas do valor criado e preservação de outros valores; acesso negado; conflitos antes da aplicação/restauração e entre persistir intenção e chamar setter; gerenciamento desconhecido; política padrão bloqueada; falha de gravação por espaço insuficiente injetada; interrupção após setter simulado sem rollback automático; e recusa de chave pai ausente.
+
+Os casos de Registro são **simulados**. Nenhuma API do Registro foi chamada pelo harness; o adaptador `WindowsRegistryPreferenceAdapter` apenas foi compilado. Nenhuma chave ou valor real, inclusive de teste, foi criado, alterado ou removido. A tela ainda não integra o protótipo. A visibilidade efetiva no Explorador, permissões reais, edição/build diferente, conflito com gestão corporativa e comportamento em outro PC permanecem pendentes.
+
+### Teste de integração futuro — requer aprovação específica
+
+Usar uma chave única `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>` e o valor `ProbeValue` (`REG_DWORD`, visão 64 bits). Conferir primeiro que a chave GUID inexiste; criar valor `0`; ler hive/visão/tipo/dado; definir `1`; ler novamente; excluir somente `ProbeValue`; confirmar chave vazia; excluir apenas a chave GUID e confirmar que ela não existe. Se surgir valor/subchave inesperado, parar sem excluir. Os pais compartilhados ficam intactos. O teste valida acesso e leitura/escrita do Registro sob uma chave isolada; não toca `HideFileExt`, não valida UI do Explorador e requer um runner isolado. Não foi executado; autorização para desenvolvimento e testes sem mutação não cobre criar essa chave.

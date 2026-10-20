@@ -5,6 +5,7 @@ using Optimizer.Core.Consent;
 using Optimizer.Core.Recovery;
 using Optimizer.Core.Network;
 using Optimizer.Core.Processes;
+using Optimizer.Core.Registry;
 using System.Net;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -80,7 +81,20 @@ var tests = new (string Name, Func<Task> Run)[]
     ("process priority journal failure before write leaves the adapter untouched", ProcessJournalFailurePreventsWrite),
     ("process priority interruption after write remains unverified without auto-restore", ProcessPostWriteJournalFailureDoesNotRollback),
     ("process priority restoration is conditional and verified for the same process", ProcessRestoreIsConditionalAndVerified),
-    ("process priority restoration rejects external changes and ended targets", ProcessRestoreRejectsConflictAndExit)
+    ("process priority restoration rejects external changes and ended targets", ProcessRestoreRejectsConflictAndExit),
+    ("registry preference plan is specific, consequence-bound, and x64-only", () => RunSync(RegistryPreferencePlanIsSpecificAndBounded)),
+    ("registry capture distinguishes missing value and reuses shared consent and history", RegistryCapturePreservesAbsence),
+    ("registry capture refuses state drift since the reviewed preview", RegistryCaptureRefusesStaleReview),
+    ("registry preference restores exact previous registry data types", RegistryRestorePreservesTypedValues),
+    ("registry restore removes only a value created from an absent snapshot", RegistryRestoreDeletesOnlyCreatedValue),
+    ("registry access denial is recorded without attempting a write", RegistryAccessDeniedPreventsWrite),
+    ("registry state drift blocks apply and external restore conflicts", RegistryConflictsRefuseWrites),
+    ("registry rechecks state after persisting intent before either setter", RegistryCheckpointDriftRefusesSetter),
+    ("registry management unknown blocks apply", RegistryUnknownManagementBlocksApply),
+    ("registry production policy blocks writes by default", RegistryDefaultPolicyBlocksWrites),
+    ("registry journal persistence failure happens before the setter", RegistryJournalFailurePreventsWrite),
+    ("registry interruption is persisted without automatic rollback", RegistryInterruptionRemainsManual),
+    ("registry missing parent key is never created", RegistryMissingParentIsNotCreated)
 };
 
 var failures = 0;
@@ -1409,6 +1423,361 @@ static void SyntheticJournalCannotCreateSnapshots()
         "synthetic history must explicitly distinguish itself from a Windows backup");
 }
 
+static void RegistryPreferencePlanIsSpecificAndBounded()
+{
+    var adapter = new FakeRegistryPreferenceAdapter(RegistryValueState.MissingValue);
+    var management = new FakeRegistryManagementInspector(RegistryManagementStatus.Unmanaged);
+    var consent = new PlanConsentService();
+    var service = new RegistryPreferenceOperationService(
+        adapter,
+        management,
+        new JsonOperationJournalStore(Path.Combine(Path.GetTempPath(), "unused-registry-review")),
+        consent,
+        new OperationJournalCoordinator(consent));
+    var review = service.CreateReview(new PlatformDescriptor(true, "x64", 26300));
+
+    Assert(review.Plan.Items.Single().AdjustmentId == RegistryPreferenceCatalog.AdjustmentId,
+        "review should contain only the stable registry adjustment");
+    Assert(review.Plan.Items.Single().Area == AdjustmentArea.Registry &&
+        review.Plan.Items.Single().Risk == AdjustmentRiskLevel.Low,
+        "showing extensions should be classified as a low-risk interface preference");
+    Assert(RegistryPreferenceCatalog.FileExtensionsAddress.Hive == RegistryPreferenceHive.CurrentUser &&
+        RegistryPreferenceCatalog.FileExtensionsAddress.KeyPath == @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" &&
+        RegistryPreferenceCatalog.FileExtensionsAddress.ValueName == "HideFileExt" &&
+        RegistryPreferenceCatalog.FileExtensionsAddress.View == RegistryPreferenceView.Registry64 &&
+        RegistryPreferenceCatalog.ShowFileExtensionsValue == RegistryTypedValue.DWord(0),
+        "the exact HKCU path, value, view, type, and show target should be fixed");
+    Assert(review.Summary.Contains("sem ganho de desempenho", StringComparison.Ordinal),
+        "the review must not imply performance benefit");
+
+    var hide = service.CreateReview(new PlatformDescriptor(true, "x64", 26300), FileExtensionVisibility.Hide);
+    Assert(hide.TargetValue == RegistryTypedValue.DWord(1) &&
+        hide.Plan.Items.Single().Risk == AdjustmentRiskLevel.Moderate &&
+        hide.Plan.Items.Single().Consequence.Contains("ambíguos", StringComparison.Ordinal),
+        "hiding extensions must have its own consequence and higher risk");
+    AssertThrows<PlatformNotSupportedException>(() =>
+        service.CreateReview(new PlatformDescriptor(true, "x86", 26300)));
+    AssertThrows<PlatformNotSupportedException>(() =>
+        service.CreateReview(new PlatformDescriptor(false, "x64", null)));
+    Assert(RegistryValueState.MissingKey.IsValid && RegistryValueState.MissingValue.IsValid,
+        "missing key and existing key with missing value must both be representable");
+    Assert(!new RegistryValueState(true, true, new RegistryTypedValue(RegistryStoredValueKind.DWord, "1")).IsValid &&
+        !new RegistryValueState(true, true, new RegistryTypedValue(RegistryStoredValueKind.Binary, "not-base64")).IsValid,
+        "malformed captured type data must be rejected before a future restore");
+}
+
+static async Task RegistryCapturePreservesAbsence()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var initial = RegistryValueState.MissingValue;
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(directory, initial);
+        var store = new JsonOperationJournalStore(Path.Combine(directory, "registry-history"));
+        var loaded = await store.LoadAsync(entry.OperationId);
+        var snapshot = loaded!.Snapshots.Single();
+        var captured = System.Text.Json.JsonSerializer.Deserialize<RegistryValueState>(snapshot.Values["RegistryStateJson"]);
+        Assert(loaded.State == JournalOperationState.SnapshotsCaptured && loaded.Consent is not null,
+            "the existing shared journal and consent receipt should be used");
+        Assert(captured == initial && captured is { KeyExists: true, ValueExists: false, Value: null },
+            "an absent value must remain distinct from a present REG_DWORD 0");
+        Assert(adapter.WriteCalls == 0 && adapter.DeleteCalls == 0,
+            "capture must never write to the Registry");
+        Assert(loaded.Snapshots.Single().Values.ContainsKey("PlanJson") &&
+            loaded.Snapshots.Single().Values.ContainsKey("CaptureFingerprint"),
+            "shared history should bind the reviewed plan and captured state");
+    });
+}
+
+static async Task RegistryCaptureRefusesStaleReview()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var original = new RegistryValueState(true, true, RegistryTypedValue.DWord(0));
+        var adapter = new FakeRegistryPreferenceAdapter(original);
+        var management = new FakeRegistryManagementInspector(RegistryManagementStatus.Unmanaged);
+        var consent = new PlanConsentService();
+        var store = new JsonOperationJournalStore(Path.Combine(directory, "registry-history"));
+        var service = new RegistryPreferenceOperationService(
+            adapter, management, store, consent, new OperationJournalCoordinator(consent));
+        var review = service.CreateReview(new PlatformDescriptor(true, "x64", 26300), FileExtensionVisibility.Hide);
+        adapter.State = new RegistryValueState(true, true, RegistryTypedValue.DWord(2));
+
+        var entry = await service.CaptureAsync(review, consequenceAccepted: true);
+        Assert(entry.State == JournalOperationState.Conflict && entry.Snapshots.Count == 0 &&
+            entry.Events.Last().EventType == "Conflict",
+            "a changed value since preview must require a fresh review instead of silently recapturing it");
+        Assert(adapter.WriteCalls == 0 && adapter.DeleteCalls == 0,
+            "stale review detection must remain read-only");
+    });
+}
+
+static async Task RegistryRestorePreservesTypedValues()
+{
+    RegistryTypedValue[] values =
+    [
+        new(RegistryStoredValueKind.String, "legacy string"),
+        new(RegistryStoredValueKind.ExpandString, "%TEMP%\\legacy"),
+        RegistryTypedValue.DWord(0),
+        new(RegistryStoredValueKind.QWord, "0000000000000012"),
+        new(RegistryStoredValueKind.MultiString, System.Text.Json.JsonSerializer.Serialize(new[] { "first", "second" })),
+        new(RegistryStoredValueKind.Binary, "AP8="),
+        new(RegistryStoredValueKind.None, "AQI=")
+    ];
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        foreach (var value in values)
+        {
+            var operationDirectory = Path.Combine(directory, value.Kind.ToString());
+            var original = new RegistryValueState(true, true, value);
+            var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+                operationDirectory, original, FileExtensionVisibility.Hide);
+            var applied = await service.ApplyAsync(entry.OperationId,
+                MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+            Assert(applied.State == JournalOperationState.MutationVerified &&
+                adapter.State == new RegistryValueState(true, true, RegistryPreferenceCatalog.HideFileExtensionsValue),
+                $"{value.Kind} prior data should be replaced by the exact reviewed DWORD target");
+
+            var restored = await service.RestoreAsync(entry.OperationId,
+                MakeRegistryApproval(entry, RegistryPreferenceAction.Restore));
+            Assert(restored.State == JournalOperationState.RestoredVerified && adapter.State == original,
+                $"{value.Kind} kind and data should be restored byte-for-byte/canonically");
+        }
+    });
+}
+
+static async Task RegistryRestoreDeletesOnlyCreatedValue()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var initial = RegistryValueState.MissingValue;
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory, initial, FileExtensionVisibility.Hide);
+        adapter.OtherValueCount = 3;
+        var applied = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(applied.State == JournalOperationState.MutationVerified && adapter.WriteCalls == 1,
+            "hiding extensions from an absent-value default should create only the named value");
+
+        var restored = await service.RestoreAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Restore));
+        Assert(restored.State == JournalOperationState.RestoredVerified && adapter.State == initial,
+            "restoration should return the named value to absent");
+        Assert(adapter.DeleteCalls == 1 && adapter.OtherValueCount == 3,
+            "restoration must delete only HideFileExt and preserve the parent key and other values");
+    });
+}
+
+static async Task RegistryAccessDeniedPreventsWrite()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory,
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide);
+        adapter.NextReadFailure = new UnauthorizedAccessException("Injected access denied.");
+        var result = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(result.Events.Last().EventType == "WriteNotAttempted" &&
+            result.Events.Last().Message.Contains("UnauthorizedAccessException", StringComparison.Ordinal),
+            "access denial should be recorded as a pre-write failure");
+        Assert(adapter.WriteCalls == 0 && adapter.DeleteCalls == 0,
+            "access denial must not reach a setter");
+    });
+}
+
+static async Task RegistryConflictsRefuseWrites()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            Path.Combine(directory, "apply"), new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide);
+        adapter.State = new RegistryValueState(true, true, RegistryTypedValue.DWord(2));
+        var conflict = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(conflict.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 0,
+            "external drift after capture must block the apply setter");
+    });
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        var original = new RegistryValueState(true, true, RegistryTypedValue.DWord(0));
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            Path.Combine(directory, "restore"), original, FileExtensionVisibility.Hide);
+        await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        adapter.State = new RegistryValueState(true, true, RegistryTypedValue.DWord(2));
+        var conflict = await service.RestoreAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Restore));
+        Assert(conflict.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 1 && adapter.DeleteCalls == 0,
+            "an external value must never be overwritten during restoration");
+    });
+}
+
+static async Task RegistryCheckpointDriftRefusesSetter()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            Path.Combine(directory, "apply"),
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide);
+        adapter.AfterRead = () => adapter.State = new RegistryValueState(true, true, RegistryTypedValue.DWord(2));
+        var conflict = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(conflict.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 0,
+            "a change while persisting apply intent must be caught by the final pre-write read");
+    });
+
+    await WithTemporaryDirectory(async directory =>
+    {
+        var original = new RegistryValueState(true, true, RegistryTypedValue.DWord(0));
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            Path.Combine(directory, "restore"), original, FileExtensionVisibility.Hide);
+        await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        adapter.AfterRead = () => adapter.State = new RegistryValueState(true, true, RegistryTypedValue.DWord(2));
+        var conflict = await service.RestoreAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Restore));
+        Assert(conflict.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 1 &&
+            adapter.State.Value == RegistryTypedValue.DWord(2),
+            "a change while persisting restore intent must not be overwritten");
+    });
+}
+
+static async Task RegistryUnknownManagementBlocksApply()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory,
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide,
+            RegistryManagementStatus.Unknown);
+        var result = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(result.Events.Last().EventType == "Conflict" && adapter.WriteCalls == 0,
+            "unknown organization-management state must block writes even with an enabled test policy");
+    });
+}
+
+static async Task RegistryDefaultPolicyBlocksWrites()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory,
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide,
+            RegistryManagementStatus.Unmanaged,
+            useProductionDefaultPolicy: true);
+        await AssertThrowsAsync<UnauthorizedAccessException>(() => service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply)));
+        Assert(adapter.WriteCalls == 0,
+            "the default production policy must refuse actual setters");
+    });
+}
+
+static async Task RegistryJournalFailurePreventsWrite()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var storage = new FaultInjectingJournalStorage();
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory,
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide,
+            RegistryManagementStatus.Unmanaged,
+            storage);
+        storage.NextWriteFailure = JournalWriteFailure.DiskFull;
+        await AssertThrowsAsync<IOException>(() => service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply)));
+        Assert(adapter.WriteCalls == 0 &&
+            (await service.LoadHistoryAsync()).Single().State == JournalOperationState.SnapshotsCaptured,
+            "a failed persisted recovery point must keep the last committed capture and prevent the setter");
+    });
+}
+
+static async Task RegistryInterruptionRemainsManual()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory,
+            new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            FileExtensionVisibility.Hide);
+        adapter.AfterWrite = () => throw new OperationCanceledException("Injected interruption after the fake write.");
+        var interrupted = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(interrupted.State == JournalOperationState.Interrupted && adapter.WriteCalls == 1 && adapter.DeleteCalls == 0,
+            "an interruption after the fake setter must persist uncertainty and avoid automatic rollback");
+        Assert(adapter.State == new RegistryValueState(true, true, RegistryPreferenceCatalog.HideFileExtensionsValue),
+            "the simulated post-write state should be left for conditional manual recovery");
+
+        var restored = await service.RestoreAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Restore));
+        Assert(restored.State == JournalOperationState.RestoredVerified &&
+            adapter.State == new RegistryValueState(true, true, RegistryTypedValue.DWord(0)),
+            "a separate explicit restoration call should be conditional and verified");
+    });
+}
+
+static async Task RegistryMissingParentIsNotCreated()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var (service, adapter, _, entry) = await CreateRegistryCaptureAsync(
+            directory, RegistryValueState.MissingKey, FileExtensionVisibility.Hide);
+        var result = await service.ApplyAsync(entry.OperationId,
+            MakeRegistryApproval(entry, RegistryPreferenceAction.Apply));
+        Assert(result.Events.Last().Message.Contains("não cria chaves", StringComparison.Ordinal) &&
+            adapter.WriteCalls == 0 && !adapter.State.KeyExists,
+            "an absent parent key must be refused without creation");
+    });
+}
+
+static async Task<(RegistryPreferenceOperationService Service, FakeRegistryPreferenceAdapter Adapter,
+    FakeRegistryManagementInspector Management, OperationJournalEntry Entry)> CreateRegistryCaptureAsync(
+    string directory,
+    RegistryValueState initialState,
+    FileExtensionVisibility targetVisibility = FileExtensionVisibility.Show,
+    RegistryManagementStatus managementStatus = RegistryManagementStatus.Unmanaged,
+    IOperationJournalStorage? storage = null,
+    bool useProductionDefaultPolicy = false)
+{
+    var adapter = new FakeRegistryPreferenceAdapter(initialState);
+    var management = new FakeRegistryManagementInspector(managementStatus);
+    var consent = new PlanConsentService();
+    var journalStore = new JsonOperationJournalStore(Path.Combine(directory, "registry-history"), storage);
+    var service = new RegistryPreferenceOperationService(
+        adapter,
+        management,
+        journalStore,
+        consent,
+        new OperationJournalCoordinator(consent),
+        useProductionDefaultPolicy ? null : new ConfirmedRegistryMutationPolicy(enabled: true));
+    var review = service.CreateReview(new PlatformDescriptor(true, "x64", 26300), targetVisibility);
+    var entry = await service.CaptureAsync(review, consequenceAccepted: true);
+    return (service, adapter, management, entry);
+}
+
+static RegistryPreferenceApproval MakeRegistryApproval(
+    OperationJournalEntry entry,
+    RegistryPreferenceAction action)
+{
+    var snapshot = entry.Snapshots.Single(item => item.AdjustmentId == RegistryPreferenceCatalog.AdjustmentId);
+    var fingerprint = snapshot.Values["CaptureFingerprint"];
+    return new RegistryPreferenceApproval(
+        entry.OperationId,
+        action,
+        fingerprint,
+        ConsequenceAccepted: true,
+        OrganizationManagementReviewed: true,
+        RegistryPreferenceOperationService.RequiredConfirmationPhrase(entry.OperationId, action));
+}
+
 static AdjustmentSnapshot SampleSnapshot(string adjustmentId, string value) =>
     new(
         adjustmentId,
@@ -1818,6 +2187,85 @@ sealed class FakeProcessPriorityAdapter : IProcessPriorityAdapter
 
     public void SetObservation(ProcessObservation observation) => _observations[observation.ProcessId] = observation;
     public ProcessObservation? Current(int processId) => _observations.TryGetValue(processId, out var observation) ? observation : null;
+}
+
+sealed class FakeRegistryPreferenceAdapter(RegistryValueState initialState) : IRegistryPreferenceAdapter
+{
+    public RegistryValueState State { get; set; } = initialState;
+    public int WriteCalls { get; private set; }
+    public int DeleteCalls { get; private set; }
+    public int OtherValueCount { get; set; }
+    public Exception? NextReadFailure { get; set; }
+    public Exception? NextWriteFailure { get; set; }
+    public Exception? NextDeleteFailure { get; set; }
+    public Action? AfterWrite { get; set; }
+    public Action? AfterRead { get; set; }
+
+    public RegistryValueState Read(RegistryPreferenceAddress address)
+    {
+        ValidateAddress(address);
+        if (NextReadFailure is not null)
+        {
+            var failure = NextReadFailure;
+            NextReadFailure = null;
+            throw failure;
+        }
+        var read = State;
+        var callback = AfterRead;
+        AfterRead = null;
+        callback?.Invoke();
+        return read;
+    }
+
+    public void WriteValue(RegistryPreferenceAddress address, RegistryTypedValue value)
+    {
+        ValidateAddress(address);
+        if (NextWriteFailure is not null)
+        {
+            var failure = NextWriteFailure;
+            NextWriteFailure = null;
+            throw failure;
+        }
+        if (!State.KeyExists)
+            throw new IOException("Fake adapter refuses to create the parent key.");
+        WriteCalls++;
+        State = new RegistryValueState(true, true, value);
+        var callback = AfterWrite;
+        AfterWrite = null;
+        callback?.Invoke();
+    }
+
+    public void DeleteValue(RegistryPreferenceAddress address)
+    {
+        ValidateAddress(address);
+        if (NextDeleteFailure is not null)
+        {
+            var failure = NextDeleteFailure;
+            NextDeleteFailure = null;
+            throw failure;
+        }
+        if (!State.KeyExists || !State.ValueExists)
+            throw new IOException("Fake adapter has no value to delete.");
+        DeleteCalls++;
+        State = RegistryValueState.MissingValue;
+    }
+
+    private static void ValidateAddress(RegistryPreferenceAddress address)
+    {
+        if (address != RegistryPreferenceCatalog.FileExtensionsAddress)
+            throw new NotSupportedException("Fake adapter only supports the catalogued preference.");
+    }
+}
+
+sealed class FakeRegistryManagementInspector(RegistryManagementStatus status) : IRegistryManagementInspector
+{
+    public RegistryManagementStatus Status { get; set; } = status;
+    public RegistryManagementAssessment Assess(RegistryPreferenceAddress address)
+    {
+        if (address != RegistryPreferenceCatalog.FileExtensionsAddress)
+            throw new NotSupportedException("Fake inspector only supports the catalogued preference.");
+        return new(Status, "synthetic organization-management assessment");
+    }
 }
 
 sealed class InlineProgress<T>(Action<T> report) : IProgress<T>

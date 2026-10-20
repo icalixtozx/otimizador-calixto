@@ -41,7 +41,7 @@ A leitura local requer apenas as permissões que o Windows conceder ao processo.
 
 O protocolo codificado para escrita persiste a intenção antes da mutação, recusa conflitos observados e verifica por leitura posterior. As APIs não oferecem operação transacional/comparação atômica, então uma mudança concorrente entre a última leitura e a chamada nativa ainda pode exigir revisão manual. A captura local não é autenticada nem protegida contra edição pelo mesmo usuário. Não existe worker elevado.
 
-Registro, políticas, configuração de rede, instalação assistida de drivers e integrações programáticas de GPU continuam indisponíveis. Prioridade de processo está implementada apenas para leitura, plano e captura: nenhum setter é chamado pelo app nesta versão. O diagnóstico de rede somente lê adaptadores e, após ação explícita, envia sondagens ICMP pequenas para um destino informado; não mede velocidade da internet. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
+O protótipo interno de Registro trata somente a preferência de exibição de extensões do Explorador. Ele reutiliza o plano, consentimento e diário existentes, mas ainda não tem tela; a política padrão bloqueia escrita e o inspetor Windows classifica gestão organizacional como desconhecida, impedindo aplicação e reversão. Nenhuma consulta ou escrita real do novo adaptador foi executada. A configuração de políticas, rede, drivers assistidos e integração programática de GPU continuam indisponíveis. Prioridade de processo mantém leitura, plano e captura na UI; a escrita de prioridade do app continua bloqueada por padrão. O diagnóstico de rede somente lê adaptadores e, após ação explícita, envia sondagens ICMP pequenas para um destino informado; não mede velocidade da internet. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
 
 ## Ambiente
 
@@ -61,7 +61,7 @@ Na raiz do repositório:
     dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
     dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 
-O harness Core cobre catálogo/perfis/consentimento/diário/simulação, VIDEOIDLE, modo de energia, classificador de rede e processos/prioridade com adaptadores falsos. Ele não chama setters reais nem comprova reversão real. O inventário, planos, VIDEOIDLE, getters do modo de energia e leitura local dos adaptadores de rede foram validados separadamente no Windows. Um harness do serviço de rede enviou quatro sondagens ICMP de 32 bytes para `1.1.1.1` (4 respostas); dentro do app, novas sondagens continuam exigindo ação explícita.
+O harness Core cobre catálogo/perfis/consentimento/diário/simulação, VIDEOIDLE, modo de energia, classificador de rede, processos/prioridade e Registro com adaptadores falsos. Os testes simulados do Registro não chamam APIs de Registro e não comprovam reversão real. O inventário, planos, VIDEOIDLE, getters do modo de energia e leitura local dos adaptadores de rede foram validados separadamente no Windows. Um harness do serviço de rede enviou quatro sondagens ICMP de 32 bytes para `1.1.1.1` (4 respostas); dentro do app, novas sondagens continuam exigindo ação explícita.
 
 ## Estrutura
 

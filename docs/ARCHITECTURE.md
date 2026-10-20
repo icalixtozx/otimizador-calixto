@@ -57,6 +57,16 @@ A classe de processo afeta agendamento de CPU; ela não garante melhora de FPS e
 
 O teste descartável em `tests/Optimizer.ProcessProbe` apenas exibe PID, instante de criação e caminho e espera Enter. O probe foi compilado, não executado. Testes de aplicação, falha, conflito, identidade, falha de disco e restauração usam adaptador falso. Não há verificação de setter real neste marco.
 
+## Registro e políticas
+
+O primeiro protótipo é `registry.explorer.file-extensions`, uma preferência do Explorador, sem alegação de desempenho. O plano individual é criado pelo `AdjustmentPlanService`, sua consequência passa por `PlanConsentService`, e o snapshot/estado usam `OperationJournalCoordinator` e `JsonOperationJournalStore` já existentes. Consentimento não autoriza escrita; `BlockedRegistryMutationPolicy` é o padrão e a aplicação não injeta a política habilitadora de teste.
+
+O alvo é estritamente `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\HideFileExt`, `REG_DWORD` 0 (exibir) ou 1 (ocultar), na visão `Registry64`. `WindowsRegistryPreferenceAdapter` lê tipo e dado sem expandir `REG_EXPAND_SZ`, preserva os tipos suportados no snapshot e não cria a chave pai. Uma captura distingue chave ausente, valor ausente e valor presente com qualquer tipo/dado suportado. O app verifica o estado antes e novamente depois de persistir a intenção; após escrita, lê tipo/dado. Reversão só age se o valor ainda for o alvo, restaura tipo/dado capturados ou exclui apenas o valor que estava ausente; nunca exclui a chave nem os demais valores.
+
+A aplicação WPF ainda não apresenta este fluxo. O adaptador de mutação real foi compilado, porém não foi invocado; o harness usa exclusivamente `FakeRegistryPreferenceAdapter`, portanto não valida Registro real nem confirmação visual no Explorador. Aplicação e restauração continuam bloqueadas no serviço padrão. A concorrência do Registro não fornece compare-and-swap: uma alteração pode ocorrer entre a última leitura e a escrita. O diário é local e não autenticado contra o próprio usuário.
+
+Não há item de política sendo editado. O caminho do candidato não fica sob `Policies`, mas a ausência de uma chave nessa árvore não demonstra que GPP, MDM, scripts de logon ou um agente corporativo não estejam definindo o valor. `WindowsRegistryPreferenceAdapter.Assess` retorna `Unknown` porque não foi encontrado mecanismo suportado que prove a ausência de todas essas fontes; `Unknown` bloqueia aplicação e reversão. Em equipamento gerenciado, a mudança deve ser feita pelo mecanismo de gestão da organização. Um teste futuro em `HKCU\Software\CalixtoOptimizer\IntegrationTests\<GUID>` precisa de aprovação própria e deve remover somente o valor/chave GUID criados por ele.
+
 ## Dependências e evidência técnica
 
 - .NET 10: [ciclo oficial de suporte](https://learn.microsoft.com/dotnet/core/releases-and-support).
