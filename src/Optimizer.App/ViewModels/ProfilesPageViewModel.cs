@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Threading;
 using Optimizer.Core.Adjustments;
 using Optimizer.Core.Consent;
 using Optimizer.Core.Profiles;
@@ -77,6 +78,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
     private readonly PlanConsentService _consentService = new();
     private readonly OperationJournalCoordinator _journalCoordinator;
     private readonly JsonOperationJournalStore _journalStore;
+    private readonly SemaphoreSlim _historyLoadGate = new(1, 1);
     private readonly AdjustmentSimulationService _simulationService;
     private readonly VideoIdleOperationService _videoIdleOperationService;
     private readonly ProfilePlanService _productProfilePlanner;
@@ -99,7 +101,8 @@ public sealed class ProfilesPageViewModel : ObservableObject
         OptimizerProfileCatalog profiles,
         AdjustmentCatalog adjustments,
         IVideoIdlePowerAdapter videoIdleAdapter,
-        IPowerModeAdapter powerModeAdapter)
+        IPowerModeAdapter powerModeAdapter,
+        string? historyDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentNullException.ThrowIfNull(adjustments);
@@ -119,10 +122,10 @@ public sealed class ProfilesPageViewModel : ObservableObject
             new InMemorySimulatedAdjustmentAdapter());
         _journalCoordinator = new OperationJournalCoordinator(_consentService);
 
-        var historyDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CalixtoOptimizer",
-            "History");
+        historyDirectory ??= Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CalixtoOptimizer",
+                "History");
         _journalStore = new JsonOperationJournalStore(historyDirectory);
         _videoIdleOperationService = new VideoIdleOperationService(
             videoIdleAdapter,
@@ -134,6 +137,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
         VideoIdleHistory = [];
         BuildPlanCommand = new RelayCommand(RebuildPlan);
         SimulateCommand = new AsyncRelayCommand(SimulateAsync, () => CanSimulate && !IsRunning);
+        RefreshHistoryCommand = new AsyncRelayCommand(LoadHistoryAsync);
         ReviewResumeCommand = new RelayCommand<OperationHistoryItem>(ReviewResume);
         ReadVideoIdleCommand = new AsyncRelayCommand(ReadVideoIdlePreviewAsync, () => !IsVideoIdleBusy);
         CaptureVideoIdleCommand = new AsyncRelayCommand(CaptureVideoIdleAsync, () => CanCaptureVideoIdle);
@@ -147,6 +151,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
     public PowerModePanelViewModel PowerMode { get; }
     public RelayCommand BuildPlanCommand { get; }
     public AsyncRelayCommand SimulateCommand { get; }
+    public AsyncRelayCommand RefreshHistoryCommand { get; }
     public RelayCommand<OperationHistoryItem> ReviewResumeCommand { get; }
     public AsyncRelayCommand ReadVideoIdleCommand { get; }
     public AsyncRelayCommand CaptureVideoIdleCommand { get; }
@@ -268,6 +273,7 @@ public sealed class ProfilesPageViewModel : ObservableObject
 
     public async Task LoadHistoryAsync()
     {
+        await _historyLoadGate.WaitAsync();
         try
         {
             var entries = await _journalStore.LoadAllAsync();
@@ -313,6 +319,10 @@ public sealed class ProfilesPageViewModel : ObservableObject
             var message = $"Não foi possível ler o histórico ({exception.GetType().Name}). Nenhuma ação do Windows foi executada.";
             StatusMessage = message;
             HistoryStatusMessage = message;
+        }
+        finally
+        {
+            _historyLoadGate.Release();
         }
     }
 

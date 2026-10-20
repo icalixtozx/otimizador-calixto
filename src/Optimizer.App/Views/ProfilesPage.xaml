@@ -250,11 +250,19 @@
           </StackPanel>
         </TabItem>
 
-        <TabItem Header="Histórico" Loaded="HistoryTab_Loaded">
+        <TabItem Header="Histórico">
           <StackPanel Margin="0,14,0,0">
-            <TextBlock Text="Capturas reais · modo de energia" FontSize="15" FontWeight="Bold" Margin="0,0,0,8" />
-            <TextBlock Text="Capturas locais da preferência configurada separada para AC/DC. Não são backups do Windows; valores antigos no histórico não foram rechecados automaticamente."
+            <DockPanel LastChildFill="False" Margin="0,0,0,8">
+              <TextBlock Text="Operações reais · modo de energia" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+              <Button Content="Atualizar histórico" Command="{Binding RefreshHistoryCommand}"
+                      Style="{StaticResource SecondaryButton}" DockPanel.Dock="Right" Margin="12,0,0,0" />
+            </DockPanel>
+            <TextBlock Text="Cada linha identifica captura persistida, aplicação verificada ou restauração verificada. A captura registra estado; não é ajuste aplicado nem backup do Windows. Leituras antigas não são rechecadas automaticamente."
                        FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,10" />
+            <Border Background="#F3F3F1" CornerRadius="9" Padding="12" Margin="0,0,0,12">
+              <TextBlock Text="{Binding PowerMode.HistoryLoadStatusMessage}" FontSize="11" Foreground="#444444"
+                         TextWrapping="Wrap" />
+            </Border>
             <ItemsControl ItemsSource="{Binding PowerMode.History}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
@@ -269,14 +277,18 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Nenhuma captura de modo de energia foi solicitada." FontSize="10" Foreground="#777777" Margin="0,0,0,14">
+            <TextBlock Text="Leitura concluída: nenhum registro real de modo de energia foi encontrado." FontSize="10" Foreground="#777777" Margin="0,0,0,14">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
                   <Setter Property="Visibility" Value="Collapsed" />
                   <Style.Triggers>
-                    <DataTrigger Binding="{Binding PowerMode.History.Count}" Value="0">
+                    <MultiDataTrigger>
+                      <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding PowerMode.HistoryLoadSucceeded}" Value="True" />
+                        <Condition Binding="{Binding PowerMode.History.Count}" Value="0" />
+                      </MultiDataTrigger.Conditions>
                       <Setter Property="Visibility" Value="Visible" />
-                    </DataTrigger>
+                    </MultiDataTrigger>
                   </Style.Triggers>
                 </Style>
               </TextBlock.Style>
@@ -312,7 +324,7 @@
               </TextBlock.Style>
             </TextBlock>
             <TextBlock Text="Histórico local do aplicativo" FontSize="18" FontWeight="Bold" />
-            <TextBlock Text="Registros persistidos em LocalAppData. Snapshots experimentais não são backups do Windows e não podem ser restaurados pelo app."
+            <TextBlock Text="Demonstrações aparecem com o selo DADOS SINTÉTICOS e ficam separadas das operações reais de energia. Registros persistidos em LocalAppData; snapshots experimentais não são backups do Windows e não podem ser restaurados pelo app."
                        FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,14" />
             <Border Background="#F3F3F1" CornerRadius="9" Padding="12" Margin="0,0,0,12">
               <TextBlock Text="{Binding HistoryStatusMessage}" FontSize="11" Foreground="#444444"

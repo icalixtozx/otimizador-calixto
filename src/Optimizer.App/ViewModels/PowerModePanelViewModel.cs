@@ -32,8 +32,10 @@ public sealed class PowerModePanelViewModel : ObservableObject
     private string _applyPhrase = string.Empty;
     private string _revertPhrase = string.Empty;
     private bool _isBusy;
+    private bool _historyLoadSucceeded;
     private string _statusMessage = "Leitura do modo de energia não solicitada. Nenhuma configuração foi consultada.";
     private string _resultLabel = "SEM LEITURA REAL";
+    private string _historyLoadStatusMessage = "Histórico ainda não carregado.";
 
     public PowerModePanelViewModel(IPowerModeAdapter adapter, string historyDirectory)
     {
@@ -56,6 +58,16 @@ public sealed class PowerModePanelViewModel : ObservableObject
 
     public IReadOnlyList<PowerModeOption> Options { get; }
     public ObservableCollection<PowerModeHistoryItem> History { get; }
+    public bool HistoryLoadSucceeded
+    {
+        get => _historyLoadSucceeded;
+        private set => SetProperty(ref _historyLoadSucceeded, value);
+    }
+    public string HistoryLoadStatusMessage
+    {
+        get => _historyLoadStatusMessage;
+        private set => SetProperty(ref _historyLoadStatusMessage, value);
+    }
     public AsyncRelayCommand ReadCommand { get; }
     public AsyncRelayCommand CaptureCommand { get; }
     public AsyncRelayCommand ApplyCommand { get; }
@@ -178,15 +190,21 @@ public sealed class PowerModePanelViewModel : ObservableObject
         try
         {
             var entries = await _service.LoadHistoryAsync();
+            var items = entries.Select(entry => new PowerModeHistoryItem(
+                entry,
+                GetStateLabel(entry.State),
+                entry.CapturedAtUtc.ToLocalTime().ToString("g"),
+                $"Proposta capturada: AC {FormatCaptured(entry.PreviousAcMode, entry.TargetAcMode)} · DC/bateria {FormatCaptured(entry.PreviousDcMode, entry.TargetDcMode)} · plano ativo capturado: {entry.CapturedActivePlanId?.ToString("D") ?? "não registrado"}. {entry.Detail}"))
+                .ToArray();
+
             History.Clear();
-            foreach (var entry in entries)
-            {
-                History.Add(new PowerModeHistoryItem(
-                    entry,
-                    GetStateLabel(entry.State),
-                    entry.CapturedAtUtc.ToLocalTime().ToString("g"),
-                    $"AC: {FormatCaptured(entry.PreviousAcMode, entry.TargetAcMode)} · DC/bateria: {FormatCaptured(entry.PreviousDcMode, entry.TargetDcMode)} · plano ativo: {entry.CapturedActivePlanId?.ToString("D") ?? "não registrado"}. {entry.Detail}"));
-            }
+            foreach (var item in items) History.Add(item);
+
+            HistoryLoadSucceeded = true;
+            HistoryLoadStatusMessage = entries.Count == 0
+                ? "Leitura concluída: nenhum registro real de modo de energia foi encontrado. Isso não é um backup do Windows."
+                : $"Leitura concluída: {entries.Count} operação(ões) real(is) de modo de energia. Os estados distinguem captura, aplicação verificada e restauração verificada; este histórico não é backup do Windows.";
+
             var selectedId = _capture?.OperationId;
             _capture = (selectedId is Guid currentId ? entries.FirstOrDefault(item => item.OperationId == currentId) : null)
                 ?? entries.FirstOrDefault(item => item.SchemaVersion >= 2 && item.CapturedActivePlanId is not null &&
@@ -196,7 +214,13 @@ public sealed class PowerModePanelViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            StatusMessage = $"Não foi possível ler o histórico de modos de energia ({exception.GetType().Name}). Nenhuma configuração foi alterada.";
+            HistoryLoadSucceeded = false;
+            var oldCount = History.Count;
+            var retained = oldCount == 0
+                ? "A lista vazia não confirma que não existam registros."
+                : $"Os {oldCount} item(ns) da leitura anterior foram mantidos e podem estar desatualizados.";
+            HistoryLoadStatusMessage = $"Falha ao ler o histórico de modos de energia ({exception.GetType().Name}). {retained} Nenhuma configuração foi alterada.";
+            StatusMessage = HistoryLoadStatusMessage;
         }
     }
 

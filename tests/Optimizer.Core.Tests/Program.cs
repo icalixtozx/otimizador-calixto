@@ -7,7 +7,9 @@ using Optimizer.Core.Network;
 using Optimizer.Core.Processes;
 using Optimizer.Core.Registry;
 using Optimizer.Core.Programs;
+using Optimizer.App.ViewModels;
 using Optimizer.Windows;
+using System.IO;
 using System.Net;
 using System.IO.Compression;
 
@@ -29,6 +31,22 @@ if (args.Length == 1 && args[0] == "--registry-management-readonly")
         return 2;
     }
     return RegistryManagementReadOnlyProbe.Run();
+}
+
+if (args.Length == 1 && args[0] == "--power-mode-history-readonly")
+{
+    var historyDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CalixtoOptimizer",
+        "History");
+    var viewModel = new PowerModePanelViewModel(
+        new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced),
+        historyDirectory);
+    await viewModel.LoadHistoryAsync();
+    Console.WriteLine(viewModel.HistoryLoadStatusMessage);
+    foreach (var item in viewModel.History)
+        Console.WriteLine($"{item.StateLabel} · {item.Date}");
+    return viewModel.HistoryLoadSucceeded ? 0 : 1;
 }
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -112,6 +130,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("power-mode journal failure before first write leaves fake Windows unchanged", PowerModeJournalFailurePreventsWrite),
     ("power-mode store rejects tampered captures", PowerModeStoreRejectsTamperedCapture),
     ("power-mode store rejects an unsupported persisted state", PowerModeStoreRejectsUnsupportedState),
+    ("power-mode history view model surfaces persisted apply and restoration states", PowerModeHistoryViewModelShowsVerifiedCycle),
+    ("power-mode history load failure is visible and never presented as confirmed empty", PowerModeHistoryViewModelSurfacesLoadFailure),
     ("network diagnostic classifies successful probes and reports bounded measurements", NetworkSuccessReportsMeasurements),
     ("network diagnostic separates DNS failure from probe failure", NetworkDnsFailureIsDistinct),
     ("network diagnostic reports ICMP timeouts without claiming internet loss", NetworkTimeoutIsInconclusive),
@@ -2061,6 +2081,81 @@ static async Task PowerModeStoreRejectsUnsupportedState()
         await AssertThrowsAsync<InvalidDataException>(() => store.LoadAsync(capture.OperationId));
     });
 }
+
+static async Task PowerModeHistoryViewModelShowsVerifiedCycle()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var adapter = new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced);
+        var store = new JsonPowerModeOperationStore(Path.Combine(directory, "RealPowerMode"));
+        var service = new PowerModeOperationService(adapter, store, new ConfirmedPowerModeMutationPolicy(enabled: true));
+        var capture = await service.CaptureAsync(UserConfiguredPowerMode.BestPerformance, targetDcMode: null);
+        var viewModel = CreateProfilesPageViewModel(directory, adapter);
+
+        await viewModel.LoadHistoryAsync();
+        Assert(viewModel.PowerMode.History.Count == 1 &&
+            viewModel.PowerMode.History[0].StateLabel == "CAPTURA REAL PERSISTIDA · NÃO APLICADA",
+            "the visual history model must distinguish a persisted capture from an applied change");
+        Assert(viewModel.PowerMode.History[0].Summary.StartsWith("Proposta capturada:", StringComparison.Ordinal),
+            "a stored target must be presented as a proposal, not as the current setting");
+
+        var applied = await service.ApplyAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Apply, ac: true));
+        Assert(applied.State == PowerModeOperationState.Verified, "fake adapter must reach the application-verified state");
+        await viewModel.LoadHistoryAsync();
+        Assert(viewModel.PowerMode.History.Single().StateLabel == "PREFERÊNCIA CONFIGURADA CONFIRMADA POR LEITURA POSTERIOR",
+            "the view model must label an application confirmed by readback");
+
+        var reverted = await service.RevertAsync(capture.OperationId,
+            MakePowerModeApproval(capture, PowerModeAction.Revert, recovery: true));
+        Assert(reverted.State == PowerModeOperationState.Reverted, "fake adapter must reach the restoration-verified state");
+        await viewModel.LoadHistoryAsync();
+        Assert(viewModel.PowerMode.History.Single().StateLabel == "PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA",
+            "the view model must show the final verified restoration state");
+        Assert(viewModel.PowerMode.HistoryLoadSucceeded &&
+            viewModel.PowerMode.HistoryLoadStatusMessage.Contains("1 operação", StringComparison.Ordinal),
+            "the visual flow must confirm that the persisted real-operation record was loaded");
+        Assert(viewModel.History.Count == 0,
+            "real power-mode records remain separate from synthetic/local demonstration history");
+
+        viewModel.IncludeSyntheticDemo = true;
+        viewModel.ConsentDecisions.Single().Accepted = true;
+        Assert(viewModel.SimulateCommand.CanExecute(null), "synthetic simulation requires the visible explicit consent");
+        viewModel.SimulateCommand.Execute(null);
+        var timeout = DateTime.UtcNow.AddSeconds(5);
+        while (viewModel.IsRunning && DateTime.UtcNow < timeout) await Task.Delay(5);
+        Assert(!viewModel.IsRunning && viewModel.History.Single().DataLabel == "DADOS SINTÉTICOS",
+            "the local demonstration must remain visibly classified as synthetic in a separate history list");
+    });
+}
+
+static async Task PowerModeHistoryViewModelSurfacesLoadFailure()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var operationDirectory = Path.Combine(directory, "RealPowerMode");
+        Directory.CreateDirectory(operationDirectory);
+        var invalidId = Guid.NewGuid();
+        await File.WriteAllTextAsync(Path.Combine(operationDirectory, invalidId.ToString("D") + ".json"), "{ broken");
+        var viewModel = CreateProfilesPageViewModel(directory,
+            new FakePowerModeAdapter(UserConfiguredPowerMode.Balanced, UserConfiguredPowerMode.Balanced));
+
+        await viewModel.LoadHistoryAsync();
+
+        Assert(!viewModel.PowerMode.HistoryLoadSucceeded,
+            "an unreadable diary must not be reported as a successful empty load");
+        Assert(viewModel.PowerMode.History.Count == 0 &&
+            viewModel.PowerMode.HistoryLoadStatusMessage.Contains("lista vazia não confirma", StringComparison.Ordinal),
+            "the visible status must explain that an empty collection after failure is inconclusive");
+    });
+}
+
+static ProfilesPageViewModel CreateProfilesPageViewModel(string historyDirectory, IPowerModeAdapter adapter) => new(
+    OptimizerProfileCatalog.CreateDefault(),
+    new AdjustmentCatalog([]),
+    new FakeVideoIdlePowerAdapter(600),
+    adapter,
+    historyDirectory);
 
 static PowerModeApproval MakePowerModeApproval(
     PowerModeOperationRecord record,

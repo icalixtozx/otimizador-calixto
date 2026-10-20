@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.IO;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using Optimizer.Core.Registry;
