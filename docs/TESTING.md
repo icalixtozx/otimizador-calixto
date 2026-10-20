@@ -205,3 +205,24 @@ O teste acima não chama `WindowsRegistryPreferenceAdapter`, não lê `HideFileE
 O XAML e code-behind da página foram compilados na solução WPF, mas a janela não foi aberta nem inspecionada em screenshot. Logo, a aparência e os bindings visuais ainda não foram confirmados. A pendência anterior de inspeção visual de **Processos** continua. Nenhuma interação com mouse/teclado foi feita.
 
 Build Release e os 85 testes simulados mais recentes estão registrados no final da seção correspondente em `docs/PROGRESS.md`. O teste do mecanismo Registry é real e separado desses testes simulados; ele não transforma os 85 casos em validação real de `HideFileExt`.
+
+## Checklist manual consolidado da interface — Processos, Registro, Rede e Energia
+
+Este é o checklist vigente para a próxima validação visual das quatro páginas. A interface não foi aberta nem observada nesta etapa, então todos os itens abaixo começam **pendentes**. Não use comandos de aplicação/restauração. Uma captura significa persistir dados no histórico do aplicativo; não aplica configuração e não é backup do Windows.
+
+- [ ] Abra o Calixto Optimizer e navegue por **Processos → Registro e políticas → Rede → Planos/Energia**, voltando entre páginas. Confirme título, item selecionado, carregamento sem página vazia e retorno à página anterior. Se uma falha ocorrer naturalmente, leia a mensagem; não provoque falta de permissão ou falha de armazenamento.
+- [ ] Em **Processos**, atualize a lista e selecione um processo comum que reconheça. Confira PID, criação, caminho quando disponível, estado e prioridade; prepare a prévia individual e leia a consequência. Registre uma captura somente se quiser validar a persistência no diário. Confirme que a tela indica revisão/captura e não oferece aplicação real.
+- [ ] Em **Registro e políticas**, acione “Ler estado e preparar prévia”; confirme se o valor real foi lido ou se a leitura falhou, sem inferir compatibilidade a partir do teste GUID. Troque o alvo e confirme que a revisão anterior é invalidada; revise consequência/gestão `Unknown`; se quiser, registre captura e atualize o histórico. Não tente alterar nem restaurar `HideFileExt`.
+- [ ] Em **Rede**, atualize os adaptadores e confira estados de link, endereços, gateway, DNS e o aviso sobre velocidade do enlace. O teste ativo é opcional; se o executar, use somente o destino `1.1.1.1` e até quatro sondagens pequenas já autorizadas, confira finalidade antes de iniciar e teste **Cancelar** durante a sequência. Registre amostras concluídas, timeout, RTT, perda e duração; ausência de resposta ICMP não prova falta de Internet. A página não tem captura/histórico de configuração.
+- [ ] Em **Planos/Energia**, confirme que a demonstração é identificada como sintética. Use “Ler modo configurado” para a consulta AC/DC/plano ativo; escolha um alvo, confira consequências separadas por tomada/bateria e, se quiser, persista a captura. Confirme no histórico “captura persistida · não aplicada”. **Não marque as autorizações específicas, não digite frases e não clique em aplicar/restaurar.** VIDEOIDLE continua com aplicação bloqueada.
+- [ ] Feche e reabra o app; atualize o histórico das páginas para confirmar que as capturas escolhidas permanecem e que a interface não as apresenta como otimizações realizadas ou como backup restaurável do Windows. Só marque “operação verificada” se houver uma operação real autorizada seguida da leitura de verificação correspondente; leitura/captura/consentimento não contam.
+
+Este checklist não valida compatibilidade em outro computador. Erros de serviço/armazenamento simulados pelo harness também não comprovam como a mensagem de erro ficará visualmente; anote como pendente qualquer estado que não apareça durante a sessão manual.
+
+### Execução desta revisão — 2026-10-19
+
+- Diretório: `%USERPROFILE%\Downloads\CalixtoOptimizer`. SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; Windows 10.0.26300, `win-x64`.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release`: sucesso, 0 avisos e 0 erros.
+- `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **85/85** checks aprovados; os checks de falhas/ajustes continuam sendo de modelo e adaptadores simulados.
+- O build recompilou a solução WPF e, portanto, validou compilação XAML. Nenhuma janela foi aberta, screenshot obtido ou teste visual executado; os itens do checklist acima continuam pendentes.
+- Nenhuma leitura de configuração, captura, sondagem de rede, aplicação, reversão ou mutação do Windows foi executada nesta revisão.

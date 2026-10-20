@@ -8,7 +8,7 @@
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="34,29,34,34">
       <TextBlock Text="Planos e histórico" FontSize="28" FontWeight="Bold" />
-      <TextBlock Text="Revise cada consequência. Este protótipo permanece em diagnóstico; nenhuma tela aplica mudanças ao Windows."
+      <TextBlock Text="Demonstração sintética, leitura real e captura persistida são estados distintos. Nada é aplicado automaticamente. O modo de energia tem um fluxo real separado, bloqueado por padrão e condicionado à confirmação específica desta operação; esta revisão não executa nem restaura configurações."
                  FontSize="13" Foreground="#737373" Margin="0,7,0,20" TextWrapping="Wrap" />
 
       <TabControl SelectedIndex="{Binding SelectedSectionIndex}" Background="Transparent" BorderThickness="0">
