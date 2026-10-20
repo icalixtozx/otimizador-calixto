@@ -2,6 +2,7 @@ Calixto Optimizer Preview R3 — 0.6.0 experimental
 Windows x64 autocontido. Build do commit de origem indicado no rodapé da janela:
 o título exibe Preview R3 e o commit curto; passe o mouse sobre o commit no rodapé
 para consultar o hash completo. Experimento não validado em outro computador.
+Origem do binário: commit @SOURCE_COMMIT@.
 
 PORTÁTIL
 1. Extraia o ZIP completo para uma pasta gravável.
@@ -28,7 +29,7 @@ HISTÓRICO
 O fluxo real do runner e a interface usam o mesmo armazenamento:
 %LOCALAPPDATA%\CalixtoOptimizer\History\RealPowerMode. A página Energia >
 Histórico lê os registros do serviço e deve mostrar o ciclo real com estado
-“Restaurado/Revertido”; ele não é misturado com a demonstração sintética. A
+“PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA”; ele não é misturado com a demonstração sintética. A
 validação de leitura do mesmo diário está documentada no relatório desta build.
 
 CHECKLIST VISUAL — NÃO APLIQUE NOVAS ALTERAÇÕES

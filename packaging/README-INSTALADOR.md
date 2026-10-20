@@ -53,3 +53,16 @@ O teste de instalação criou e removeu somente os componentes do próprio aplic
 ## Publicação
 
 Nenhuma GitHub Release foi publicada. O repositório permanece privado. Para publicar manualmente como pre-release experimental pelo site, anexando somente estes dois artefatos, consulte `docs/RELEASE-EXPERIMENTAL.md`. `gh.exe` não é necessário para esse procedimento.
+
+## Preview R3 — 2026-10-20
+
+Build de origem: `6839b64e4c79ca0d730632c718467f1a2e8651da`. Identificação: `PREVIEW R3 · v0.6.0 experimental`; o app mostra o commit curto e seu hash completo no tooltip. O assembly publicado contém `0.6.0-experimental-preview-20261020-r3+6839b64e4c79ca0d730632c718467f1a2e8651da`.
+
+| Artefato | Caminho no repositório | Bytes | SHA-256 |
+|---|---|---:|---|
+| ZIP portátil | `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r3/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r3-win-x64-portable.zip` | 65.715.392 | `0B58EBA03E55E896F04759A654ECF7BAA7372054E0A2C1A1B84AF574FEE4CC0F` |
+| Instalador EXE | `artifacts/installer-preview-20261020-r3/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r3-win-x64-setup.exe` | 46.887.177 | `A965CBEF13BCE5C6368111C2092D36F08AB4DF40C9B51C502A86228CA305F0F0` |
+
+Build Release .NET SDK 10.0.402: 0 avisos/erros; harness 127/127 simulado. A publicação autocontida tem 406 arquivos. Inno Setup 7.1.0 compilou o script com sucesso. App e instalador não foram executados; instalação, atualização, remoção e validação visual seguem pendentes. O AppId e destino são exclusivos R3, separados do R2. Assinatura do Setup: `NotSigned`.
+
+O ciclo real AC autorizado anteriormente aparece no histórico lido pela mesma view model da tela Energia como `PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA`. A interface ainda precisa de conferência visual. Para abrir sem instalar runtime, execute o `Optimizer.App.exe` na pasta R3 publicada indicada no checklist da entrega. Não use a Preview R2 nem o executável framework-dependent em `src/Optimizer.App/bin`.

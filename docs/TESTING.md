@@ -450,3 +450,29 @@ Nenhum staging, associação, instalação, remoção ou reinício foi executado
 - A chamada real para `PowerSetUserConfiguredACPowerMode` foi verificada pelo getter: AC=`Melhor desempenho`; DC permaneceu `Equilibrado` e o GUID do plano permaneceu igual.
 - A restauração condicional usou a captura e só ocorreu após a checagem do estado atual. O serviço informou `Reverted`; leitura final confirmou AC/DC=`Equilibrado` e o mesmo plano ativo. O diário persistido também terminou em `Reverted`.
 - Os `127/127` checks são simulados. A execução real acima valida este PC e este build do Windows; não valida modo efetivo, desempenho, UI visual ou compatibilidade em outro PC.
+
+## Preview autocontido R3 — 2026-10-20
+
+Origem binária: commit `6839b64e4c79ca0d730632c718467f1a2e8651da` (`PREVIEW R3 · v0.6.0 experimental`).
+
+- SDK efetivo: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: passou, 0 warnings e 0 errors.
+- `dotnet .\tests\Optimizer.Core.Tests\bin\Release\net10.0-windows\Optimizer.Core.Tests.dll`: **127/127 checks** aprovados; são testes de modelo/harness simulados.
+- `dotnet publish ... --runtime win-x64 --self-contained true`: 405 arquivos de publicação; após adicionar o README, a pasta do ZIP contém 406 arquivos e 147.790.887 bytes. Apphost, WPF e runtime autocontido foram encontrados; reflexão confirmou a versão informativa completa com o commit esperado.
+- A probe de histórico chamou `PowerModePanelViewModel.LoadHistoryAsync()` usando a view model e o mesmo caminho da interface. Leu 2 linhas e encontrou o ciclo real AC do runner como `PREFERÊNCIAS CAPTURADAS RESTAURADAS POR LEITURA`. A leitura não consultou nem alterou energia. Isso valida o acesso do modelo/armazenamento, não a renderização visual da página.
+- ZIP: 406 entradas conferidas uma a uma contra a publicação; apphost, runtime e README R3 presentes.
+- Inno Setup 7.1.0 compilou `packaging/CalixtoOptimizer-Preview-20261020-r3.iss` com sucesso. O instalador usa a mesma publicação do ZIP.
+- O app não foi aberto nem o Setup executado. Instalação, upgrade, desinstalação, atalho, validação visual e outro computador permanecem pendentes. O Setup não tem assinatura digital do publicador.
+- Nenhuma configuração do Windows foi alterada durante o empacotamento. O teste real AC anterior permanece evidência do serviço e não foi repetido.
+
+### Checklist manual pendente
+
+Abra o `Optimizer.App.exe` na pasta R3 indicada no relatório e confira:
+
+1. **Energia:** identificação R3, estados e consequências; não aplicar nem restaurar.
+2. **Histórico:** ciclo real aparece como restaurado; separar demonstração sintética e confirmar que captura não é backup.
+3. **Programas:** indisponibilidade do WinGet mostra motivo e inventário local ainda abre; não instalar.
+4. **Processos:** lista, erros de acesso/encerramento e revisão; não alterar prioridades nem encerrar processos.
+5. **Registro:** avaliação de gerenciamento/estado desconhecido e escrita bloqueada; não mudar valores nem políticas.
+
+Nenhum item foi visualmente aprovado nesta etapa.
