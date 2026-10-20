@@ -10,6 +10,7 @@ Aplicativo experimental local para diagnóstico de hardware, dispositivos, drive
 - Um código PnP é mostrado como dado reportado pelo Windows; o app não o converte automaticamente em “driver ausente”. Uma linha sem metadados de driver também não prova ausência de driver.
 - Não compara versões com catálogo externo e não classifica drivers como desatualizados.
 - Pré-visualiza um relatório JSON sanitizado antes de oferecer a gravação escolhida pelo usuário. O relatório não é enviado.
+- A visão geral reutiliza o inventário WMI de controladores gráficos e oferece atalhos para a preferência gráfica nativa do Windows e para conferir o mecanismo GPU corrente no Gerenciador de Tarefas. O app não lê nem altera a preferência por aplicativo e não afirma qual GPU está ativa para um processo.
 - Interface em português, alto contraste preto e branco.
 - A demonstração sintética é separada e desligada por padrão.
 
@@ -59,7 +60,7 @@ Na raiz do repositório:
     dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
     dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 
-O harness Core cobre catálogo/perfis/consentimento/diário/simulação, VIDEOIDLE e modo de energia com adaptadores falsos e o classificador do diagnóstico de rede. Ele não chama APIs de escrita nem comprova reversão real. O inventário, planos, VIDEOIDLE, getters do modo de energia e leitura local dos adaptadores de rede foram validados separadamente no Windows; uma sondagem DNS/ICMP real ainda requer clique explícito no app.
+O harness Core cobre catálogo/perfis/consentimento/diário/simulação, VIDEOIDLE e modo de energia com adaptadores falsos e o classificador do diagnóstico de rede. Ele não chama APIs de escrita nem comprova reversão real. O inventário, planos, VIDEOIDLE, getters do modo de energia e leitura local dos adaptadores de rede foram validados separadamente no Windows. Um harness do serviço de rede enviou quatro sondagens ICMP de 32 bytes para `1.1.1.1` (4 respostas); dentro do app, novas sondagens continuam exigindo ação explícita.
 
 ## Estrutura
 

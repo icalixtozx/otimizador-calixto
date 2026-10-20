@@ -146,8 +146,16 @@
         <Border Grid.Column="0" Style="{StaticResource CardBorder}">
           <StackPanel>
             <TextBlock Text="COMPONENTES" FontSize="12" FontWeight="Bold" />
-            <TextBlock Text="Placa de vídeo" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,17,0,5" />
+            <TextBlock Text="Controladores gráficos reportados pelo Windows" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,17,0,5" />
             <TextBlock Text="{Binding GraphicsLabel}" FontSize="12" TextWrapping="Wrap" />
+            <TextBlock Text="Esse inventário não identifica a preferência por aplicativo nem qual GPU está sendo usada agora." FontSize="10" Foreground="#656565" TextWrapping="Wrap" LineHeight="15" Margin="0,7,0,0" />
+            <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="11,8" Click="OpenGraphicsSettings_Click">
+              <TextBlock Text="Abrir preferência gráfica do Windows" FontSize="10" />
+            </Button>
+            <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,7,0,0" Padding="11,8" Click="OpenTaskManager_Click">
+              <TextBlock Text="Ver GPU em uso no Gerenciador de Tarefas" FontSize="10" TextWrapping="Wrap" />
+            </Button>
+            <TextBlock Text="O Gerenciador de Tarefas mostra uma amostra atual por processo; a preferência configurada não garante que esse seja sempre o mecanismo efetivamente usado." FontSize="9" Foreground="#888888" TextWrapping="Wrap" LineHeight="14" Margin="0,7,0,0" />
             <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
             <TextBlock Text="Placa-mãe" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
             <TextBlock Text="{Binding MotherboardLabel}" FontSize="12" TextWrapping="Wrap" />

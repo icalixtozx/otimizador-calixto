@@ -1,7 +1,7 @@
 # Progresso
 
 Última atualização: 2026-10-19
-Base preservada: c150a51430e603f4bc2ca9f0536383c337efab37.
+Base das etapas anteriores: c150a51430e603f4bc2ca9f0536383c337efab37. Continuação atual iniciada no commit 6138ef27d69c3ac305f32e1bbb515f29433ed757; matriz atual na seção 17.
 Versão de desenvolvimento: 0.6.0-experimental (ZIP e instalador locais gerados). A tag e os artefatos 0.5.0 permanecem no commit de release anterior. Não validado em outro computador.
 
 ## 1. Validação do diagnóstico local
@@ -311,4 +311,50 @@ A matriz da seção 14 foi atualizada para refletir o SDK e o ciclo de instalaç
 - A fase 5 oficial **passa de não iniciada para parcial**: diagnóstico de rede local e teste explícito DNS/ICMP estão implementados; compatibilidade GPU continua não iniciada. A fase 5 não está concluída.
 - Implementação/compilação da interface foi validada, mas a página não foi aberta para inspeção visual automatizada. O checklist manual está em `docs/TESTING.md`; não foi usado mouse nem alterado foco do usuário.
 - Os resultados ativos reais de DNS/ICMP, cancelamento físico, destinos que bloqueiam ICMP, interface offline e testes em outro PC continuam pendentes. A suíte cobre essas classes somente por simulação.
-- Próximo menor marco previsto: fase 5 restante, uma análise somente de leitura da disponibilidade documentada de preferência gráfica por aplicativo para GPU. Antes de qualquer UI de aplicação, confirmar fonte/API e suportes observáveis; se não houver API apropriada, deixar o item explicitamente indisponível. Nenhuma preferência GPU foi implementada nesta entrega.
+- Proposta de próximo marco na época: investigar GPU; foi atendida parcialmente pela etapa documentada na seção 17, sem integração de escrita/leitura da preferência pelo app.
+
+## 17. Validação de rede e investigação de GPU — 2026-10-19
+
+Continuação direta de `6138ef27d69c3ac305f32e1bbb515f29433ed757`; árvore estava limpa antes desta etapa. A matriz abaixo substitui o estado resumido da seção 14 e as previsões da seção 16. Ela preserva a diferença entre diagnóstico, capacidade de configuração e execução real.
+
+### Rede: teste real autorizado
+
+- Foi usado `NetworkDiagnosticsService` com o `WindowsNetworkDiagnosticsAdapter` já empregado pelo aplicativo. Destino literal `1.1.1.1`; quatro ICMP Echo Requests sequenciais de 32 bytes, timeout de 1.000 ms cada. Não houve DNS nem download.
+- Resultado observado: 4/4 respostas; 0 timeouts; 0 falhas; perda amostral 0%; RTTs 16, 17, 18 e 16 ms; tempo total 130 ms. Isso só confirma respostas ao destino durante essas quatro amostras. Não mede largura de banda nem estabelece disponibilidade geral da internet. O limite autorizado foi respeitado; não foi chamado `ping.exe`, pois isso acrescentaria tráfego além do limite.
+- O teste foi executado pelo serviço real em harness, não pelo botão da interface. O fluxo interativo na UI ainda depende da validação visual manual; não foi aberta janela para não disputar mouse/teclado.
+- Comparação nativa de inventário de adaptadores está registrada na seção 16. Nenhuma comparação nativa independente do resultado ICMP foi feita devido ao limite de quatro pacotes.
+
+### GPU: limites verificados e acesso nativo
+
+- Reutilizado `WmiComputerInventoryService` e sua consulta já existente `Win32_VideoController.Name`; a consulta local atual retornou inventário disponível, 1 nome de controlador reportado, 0 avisos. O nome bruto não foi publicado. A classe documenta controladores, mas não prova qual GPU renderiza um processo; em drivers sem WDDM ela pode reportar valores imprecisos.
+- A documentação oficial confirma o URI `ms-settings:display-advancedgraphics` como página nativa para preferências de gráficos, sujeito a dispositivo compatível. Adicionados à visão geral botões explícitos para abrir Configurações de gráficos e Gerenciador de Tarefas. O primeiro abre consulta/configuração nativa do usuário; o app não grava essa preferência.
+- A interface DXGI `IDXGIFactory6::EnumAdapterByGpuPreference` permite ao próprio aplicativo ordenar adaptadores conforme uma preferência escolhida para criar dispositivo Direct3D. Não lê a preferência persistida de outro app. Não foi validada API pública/estável para o Calixto ler a preferência por app configurada no Windows; não se usa chave privada do Registro.
+- O uso gráfico corrente por processo é observável na coluna **GPU Engine** do Gerenciador de Tarefas. É uma observação momentânea e separada da preferência configurada. O Calixto não coleta essa telemetria programaticamente. Os novos atalhos não foram abertos/observados visualmente.
+- Fontes Microsoft: [WMI Win32_VideoController](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-videocontroller), [URI oficial de Configurações](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings), [preferência gráfica por app](https://support.microsoft.com/en-us/windows/hardware/display-graphics/optimizations-for-windowed-games-in-windows-11), [DXGI GPU preference](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_6/nf-dxgi1_6-idxgifactory6-enumadapterbygpupreference), [GPU Engine no Task Manager](https://learn.microsoft.com/en-us/surface/surface-book-gpu-overview).
+
+### Matriz completa e atual do plano oficial
+
+| Fase oficial | Diagnóstico | Configuração / geração de plano | Execução real | Estado global e evidência |
+| --- | --- | --- | --- | --- |
+| 0 — Ambiente e decisões | **Concluído nesta máquina**: Windows x64, SDK e build identificados. | **Parcial**: versões-alvo e regras registradas; ambiente limpo/segundo PC pendente. | **Parcial**: build/testes locais possíveis; compatibilidade externa não verificada. | **Parcial** — SDK 10.0.402 local; artefatos anteriores sem proveniência reproduzível completa; outro PC pendente. |
+| 1 — Inventário de sistema, dispositivos e drivers | **Concluído localmente**: WMI/PowrProf; 179 dispositivos/drivers, cinco planos; códigos PnP e exportação sanitizada. Controlador gráfico reportado reusado do inventário. | **Não aplicável**: inventário não edita estes estados. | **Somente leitura verificada** neste PC; nenhum ajuste decorrente aplicado. | **Concluído localmente** no escopo consultado; outras versões/OEMs e outro PC pendentes. Não há comparação de versão contra catálogo externo. |
+| 2 — Catálogo, compatibilidade, perfis, consentimento, diário e simulação | **Parcial**: regras de compatibilidade e prévia usam estado observado; catálogo real continua pequeno. | **Concluído em simulação**: perfis leve/equilibrado/extremo/personalizado, consequência, consentimento e plano simulado. | **Não habilitada por padrão**; nenhum plano simulado é escrito no Windows. | **Concluído no escopo simulado**, não como otimizador executável. O modo extremo não aplica tudo automaticamente; snapshots sintéticos não recuperam Windows. |
+| 3 — Primeiro ajuste real reversível | **Concluído localmente em leitura**: PowrProf e getter de modo configurado lidos; capturas persistidas testadas. | **Parcial**: fluxo VIDEOIDLE/energia e consequências codificados; política de escrita fica negada. | **Bloqueada**: VIDEOIDLE/modo de energia não aplicados nem revertidos; execução exige aprovação específica posterior. | **Parcial** — leitura/captura verificadas; ciclo de escrita real não validado e não autorizado. |
+| 4 — Módulos de energia, Registro, políticas, processos e rede | **Parcial**: planos/modos de energia e adaptadores/rede têm diagnóstico; não há diagnóstico equivalente para todos os demais domínios. | **Parcial**: fluxo de energia codificado, mas bloqueado; módulos de Registro, políticas, processos e configuração de rede indisponíveis. | **Bloqueada/ausente**: nenhum setter de energia; nenhuma escrita de Registro, política, prioridade ou rede. | **Parcial** — energia e rede apenas no escopo diagnóstico/fluxo bloqueado; Registro/políticas/processos e ajuste de rede não iniciados. |
+| 5 — Integrações GPU compatíveis | **Parcial**: WMI local reporta um controlador; preferência por app consultável no Windows; uso corrente pode ser observado no Gerenciador de Tarefas. | **Não implementada pelo Calixto**: sem API pública/estável validada para ler preferência de outros apps; não escrever Registro. | **Nenhuma**: sem alteração de preferência nem telemetria GPU do produto. | **Parcial como encaminhamento nativo** — controlador reportado, preferência configurada e GPU usada são estados distintos. |
+| 6 — Pós-formatação, fontes e instalação assistida de drivers/programas | **Parcial**: identificar drivers e códigos PnP localmente. | **Não iniciada**: seleção/verificação de pacotes oficiais e plano de instalação assistida não existem. | **Não iniciada/bloqueada pela ausência de módulo**: nenhum INF/driver/programa instalado. | **Parcial** — leitura existe; atualização/instalação assistida e seleção de programas continuam pendentes. |
+| 7 — Publicação portátil, instalador e recuperação | **Parcial**: conteúdo/hashes e logs dos pacotes revisados. | **Parcial**: ZIP/Setup 0.6 compilados em estágio anterior; pacotes atuais não contêm estas alterações. | **Parcial local**: instalação 0.5, upgrade para 0.6 e desinstalação executados; sem instalação do build atual/segundo PC. | **Parcial** — empacotamento não conclui funcionalidade; recuperação prática e validação em outro PC pendentes. |
+| 8 — Controles extremos específicos por hardware | **Não iniciado**: nenhuma matriz/validação por CPU/GPU/placa/OEM. | **Não iniciado**: sem integração fabricante/firmware. | **Bloqueada/não autorizada**: nenhuma escrita de BIOS, firmware, tensão ou frequência. | **Não iniciado**; candidatos documentados não são suporte implementado. |
+
+### Build, testes e mudança do repositório
+
+- SDK escolhido explicitamente: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; `global.json` 10.0.100 com `latestFeature` mantido. Diretório das execuções: `%USERPROFILE%\Downloads\CalixtoOptimizer`.
+- Alterações de código nesta etapa: `src/Optimizer.App/Views/OverviewPage.xaml` e `.xaml.cs`; documentação em `README.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md` e `docs/PROGRESS.md`.
+- Restore da solução: êxito; build Release final: êxito, 0 avisos e 0 erros; harness: 63/63 checks aprovados, incluindo os nove casos simulados de rede da etapa anterior. Uma primeira tentativa do build encontrou falta de `using System.IO` no code-behind dos atalhos; foi corrigida antes do build final. `dotnet --info` mostrou MSBuild 18.9.15, runtime 10.0.13 e Windows x64 build 26300. Não foram adicionados testes de UI automatizados.
+- Não foi recriado ZIP/instalador e nenhuma release foi publicada. Não houve alterações em energia, rede, GPU, Registro, políticas, processos, serviços, drivers ou firmware; os únicos pacotes enviados foram as quatro sondagens ICMP autorizadas.
+
+### Pendências e próxima fatia
+
+- Revisar visualmente a página Rede e testar cancelar/resultado parcial manualmente; conferir os novos atalhos GPU sem abrir janela nesta validação; outro PC permanece pendente.
+- Manter como pendentes: aplicação/reversão reais de energia, VIDEOIDLE, módulos de Registro/políticas/processos, configuração de rede, leitura programática confiável da preferência GPU, telemetria GPU do produto, drivers assistidos, validação por hardware e recuperação prática.
+- Próxima menor entrega prevista após build/teste: não escrever preferências GPU. Fazer uma validação visual manual curta da visão geral (inventário/atalhos) e da página Rede; depois retomar o próximo módulo funcional que o plano prioriza, mantendo ajustes reais bloqueados por consentimento e validação individual.

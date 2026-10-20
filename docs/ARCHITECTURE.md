@@ -37,6 +37,14 @@ Carregar/atualizar adaptadores é leitura local e não envia sondagens. Um teste
 
 Falha do inventário local, ausência de interface operacional com endereço não loopback, falha DNS, timeouts sem resposta, outros erros ICMP, resposta parcial e cancelamento são resultados distintos. Ausência de resposta ICMP pode decorrer de bloqueio no host/rota/regras e não prova falta de internet. Nenhum código altera DNS, interface, firewall, Registro, políticas ou configurações de rede. Esses dados não são incluídos na exportação diagnóstica sanitizada.
 
+## Inventário e preferência gráfica
+
+O inventário gráfico reutiliza `WmiComputerInventoryService` e sua consulta existente a `Win32_VideoController.Name`. O resultado é descrito como controlador reportado pelo Windows; não demonstra que o adaptador está conduzindo a tela, nem qual dispositivo está renderizando uma aplicação. O provedor WMI pode reportar valores imprecisos em hardware/driver fora do WDDM.
+
+Preferência por aplicativo e uso corrente são estados diferentes. O Windows documenta a página de Configurações `ms-settings:display-advancedgraphics` para consultar e configurar a preferência por aplicativo em dispositivos compatíveis. O app oferece essa página por clique e não grava tal preferência. Não foi validada uma API pública e estável para ler no app a preferência persistida de outros executáveis. A API DXGI `IDXGIFactory6::EnumAdapterByGpuPreference` ordena os adaptadores para a preferência escolhida pelo próprio app que cria o dispositivo Direct3D; ela não lê a configuração de Preferência gráfica de outro aplicativo.
+
+Para observar qual motor gráfico está sendo usado por processo, o app oferece abrir o Gerenciador de Tarefas. A coluna **GPU Engine** é uma observação corrente, dependente de atividade, versão do Windows e driver; não é a preferência configurada nem uma promessa de uso constante. Este produto não coleta telemetria GPU programaticamente e não altera escolha gráfica. Não acessa chaves privadas do Registro.
+
 ## Dependências e evidência técnica
 
 - .NET 10: [ciclo oficial de suporte](https://learn.microsoft.com/dotnet/core/releases-and-support).
@@ -44,6 +52,11 @@ Falha do inventário local, ausência de interface operacional com endereço nã
 - Interfaces locais: [NetworkInterface.GetAllNetworkInterfaces](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.networkinterface.getallnetworkinterfaces).
 - Resolução: [Dns.GetHostAddressesAsync com CancellationToken](https://learn.microsoft.com/en-us/dotnet/api/system.net.dns.gethostaddressesasync?view=net-10.0).
 - ICMP assíncrono com timeout e cancelamento: [Ping.SendPingAsync](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.ping.sendpingasync?view=net-10.0).
+- Inventário de controladores reportados: [Win32_VideoController](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-videocontroller).
+- Abrir a preferência gráfica nativa: [URI `ms-settings:display-advancedgraphics`](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings).
+- Configuração por aplicativo e necessidade de reiniciar o app após salvar: [Microsoft Support — Graphics settings in Windows 11](https://support.microsoft.com/en-us/windows/hardware/display-graphics/optimizations-for-windowed-games-in-windows-11).
+- Ordenação DXGI escolhida pelo próprio aplicativo: [IDXGIFactory6::EnumAdapterByGpuPreference](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_6/nf-dxgi1_6-idxgifactory6-enumadapterbygpupreference).
+- Verificação nativa do mecanismo por aplicativo: [Surface GPU overview — Task Manager GPU Engine](https://learn.microsoft.com/en-us/surface/surface-book-gpu-overview).
 - Estado Plug and Play: [Win32_PnPEntity](https://learn.microsoft.com/windows/win32/cimwin32prov/win32-pnpentity).
 - Consulta WMI: [ManagementObjectSearcher](https://learn.microsoft.com/dotnet/api/system.management.managementobjectsearcher?view=net-10.0).
 - Pacote: [System.Management 10.0.12](https://www.nuget.org/packages/System.Management/10.0.12).
