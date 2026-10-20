@@ -39,7 +39,7 @@ A leitura local requer apenas as permissões que o Windows conceder ao processo.
 
 O protocolo codificado para escrita persiste a intenção antes da mutação, recusa conflitos observados e verifica por leitura posterior. As APIs não oferecem operação transacional/comparação atômica, então uma mudança concorrente entre a última leitura e a chamada nativa ainda pode exigir revisão manual. A captura local não é autenticada nem protegida contra edição pelo mesmo usuário. Não existe worker elevado.
 
-Processos, Registro, políticas, rede, instalação assistida de drivers e integrações de GPU continuam indisponíveis. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
+Processos, Registro, políticas, configuração de rede, instalação assistida de drivers e integrações de GPU continuam indisponíveis. O diagnóstico de rede somente lê adaptadores e, após ação explícita, envia sondagens ICMP pequenas para um destino informado; não mede velocidade da internet. Não prometemos ganho de FPS. Não há mudança em BIOS, firmware, tensão, frequência ou proteção.
 
 ## Ambiente
 
@@ -59,13 +59,13 @@ Na raiz do repositório:
     dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release
     dotnet run --project .\src\Optimizer.App\Optimizer.App.csproj --configuration Release
 
-O harness Core cobre catálogo/perfis/consentimento/diário/simulação e os fluxos VIDEOIDLE e modo de energia com adaptadores falsos. Ele não chama APIs de escrita nem comprova reversão real. O inventário, planos, VIDEOIDLE e getters do modo de energia foram validados separadamente no Windows local, somente leitura.
+O harness Core cobre catálogo/perfis/consentimento/diário/simulação, VIDEOIDLE e modo de energia com adaptadores falsos e o classificador do diagnóstico de rede. Ele não chama APIs de escrita nem comprova reversão real. O inventário, planos, VIDEOIDLE, getters do modo de energia e leitura local dos adaptadores de rede foram validados separadamente no Windows; uma sondagem DNS/ICMP real ainda requer clique explícito no app.
 
 ## Estrutura
 
     src/Optimizer.App/          WPF, navegação e interface
     src/Optimizer.Core/         inventário, catálogo, perfis e fluxo de operações
-    src/Optimizer.Windows/      WMI, inventário PowrProf, VIDEOIDLE e modo de energia do usuário
+    src/Optimizer.Windows/      WMI, energia, inventário local e diagnóstico de rede no Windows
     tests/Optimizer.Core.Tests/ harness Core com falhas e adaptadores simulados
     docs/                       arquitetura, diagnóstico, catálogo, recuperação e progresso
     packaging/                  fonte do Inno Setup e documentação

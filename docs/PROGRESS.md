@@ -273,3 +273,42 @@ A autorização foi executada apenas em %LOCALAPPDATA%/Programs/CalixtoOptimizer
 - Nenhum setter de energia, registro de ajustes, serviço, política, rede, driver ou prioridade foi chamado.
 
 A matriz da seção 14 foi atualizada para refletir o SDK e o ciclo de instalação. A fase 7 continua parcial: teste de setup passou neste PC, mas não conclui recuperação prática nem compatibilidade em outro computador. A próxima menor fatia continua o diagnóstico somente de leitura de conectividade/RTT/perda da fase 5, ainda não iniciado.
+
+## 16. Diagnóstico de rede somente leitura — 2026-10-19
+
+### Base e implementação
+
+- Continuação do commit `57c1bf3d714f6809f33eb9479dbc575bc75c0511`, com árvore limpa antes das alterações. A navegação **Rede** estava indisponível.
+- `Optimizer.Core/Network` agora contém contratos/modelos e classificador testável. Leitura local falha, ausência de interface operacional com endereço não loopback, falha de DNS, timeout sem resposta, outros erros ICMP, resposta parcial e cancelamento são estados separados.
+- `WindowsNetworkDiagnosticsAdapter` consulta `NetworkInterface.GetAllNetworkInterfaces`, `Dns.GetHostAddressesAsync` e `Ping.SendPingAsync` assíncronos. Endereços MAC não são lidos. A enumeração pode incluir loopback, túnel e interfaces virtuais.
+- `NetworkPageViewModel` e `Views/NetworkPage.xaml` integram inventário e teste à navegação existente. A navegação apenas lê inventário local. DNS/ICMP só começam pelo botão explícito, com destino editável e finalidade visíveis. O teste seleciona um IP resolvido, envia no máximo 4 sondagens sequenciais de 32 bytes, com timeout individual de 1.000 ms, atualiza progresso e aceita cancelamento; resultados parciais são mantidos. Não há download ou gravação de configuração.
+- A UI apresenta link speed como velocidade do enlace reportada pelo adaptador, nunca como banda contratada/velocidade medida da internet. Ping sem resposta declara explicitamente que bloqueio ICMP/rota/host podem explicar o resultado e que isso não prova falta de internet.
+- Nenhuma otimização, setter de energia, mudança DNS/adaptador/firewall/Registro/política/rede, instalador ou pacote de distribuição foi executado ou gerado nesta etapa.
+
+### Arquivos alterados
+
+- Núcleo: `src/Optimizer.Core/Network/NetworkModels.cs`, `NetworkDiagnosticsService.cs`.
+- Windows: `src/Optimizer.Windows/WindowsNetworkDiagnosticsAdapter.cs`.
+- Interface: `src/Optimizer.App/ViewModels/NetworkPageViewModel.cs`, `MainWindowViewModel.cs`, `MainWindow.xaml`, `Views/NetworkPage.xaml`, `Views/NetworkPage.xaml.cs`.
+- Verificação/documentação: `tests/Optimizer.Core.Tests/Program.cs`, `README.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, este arquivo.
+
+### Build e testes simulados
+
+- Ambiente: PowerShell em `Downloads/CalixtoOptimizer`; SDK explicitamente chamado em `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`; `dotnet --version` = `10.0.402`; `dotnet --list-sdks` lista somente `10.0.402` nesse caminho. `global.json` preservado em 10.0.100, `latestFeature`.
+- Restore da solução: êxito.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: êxito, 0 avisos e 0 erros.
+- `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: 63/63 checks aprovados. Os nove novos testes usam adaptadores simulados; não emitem tráfego.
+
+### Leitura real local e comparação nativa
+
+- Um harness temporário invocou o leitor real do aplicativo. Resultado agregado: 33 interfaces; 6 com estado `Up`; 1 `Up` com endereço não loopback; 1 `Up` com gateway; 2 `Up` expondo DNS; 0 avisos. Identificadores e endereços locais foram omitidos deste registro.
+- `Get-NetAdapter -IncludeHidden`: 10 adaptadores (`Up=1`, `Disconnected=5`, `Not Present=4`). `Get-NetIPConfiguration -All`: 6 configurações; 1 `Up` com gateway e DNS.
+- A única interface operacional com endereço não loopback/gateway concordou com a configuração `Up` do cmdlet. O total bruto difere porque .NET também enumera interfaces virtuais, loopback e túneis. DNS em interfaces `Up` teve diferença (2 na lista .NET contra 1 perfil `Up` no cmdlet); a UI conserva o dado reportado sem inferir conectividade. A leitura real não fez consulta DNS do destino nem teste ICMP.
+- Comparação/fonte técnica: APIs oficiais Microsoft [.NET NetworkInterface](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.networkinterface.getallnetworkinterfaces), [DNS assíncrono com cancelamento](https://learn.microsoft.com/en-us/dotnet/api/system.net.dns.gethostaddressesasync?view=net-10.0) e [Ping assíncrono com timeout/cancelamento](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.ping.sendpingasync?view=net-10.0).
+
+### Estado da fase, limitações e próximo marco
+
+- A fase 5 oficial **passa de não iniciada para parcial**: diagnóstico de rede local e teste explícito DNS/ICMP estão implementados; compatibilidade GPU continua não iniciada. A fase 5 não está concluída.
+- Implementação/compilação da interface foi validada, mas a página não foi aberta para inspeção visual automatizada. O checklist manual está em `docs/TESTING.md`; não foi usado mouse nem alterado foco do usuário.
+- Os resultados ativos reais de DNS/ICMP, cancelamento físico, destinos que bloqueiam ICMP, interface offline e testes em outro PC continuam pendentes. A suíte cobre essas classes somente por simulação.
+- Próximo menor marco previsto: fase 5 restante, uma análise somente de leitura da disponibilidade documentada de preferência gráfica por aplicativo para GPU. Antes de qualquer UI de aplicação, confirmar fonte/API e suportes observáveis; se não houver API apropriada, deixar o item explicitamente indisponível. Nenhuma preferência GPU foi implementada nesta entrega.

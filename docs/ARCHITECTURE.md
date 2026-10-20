@@ -4,6 +4,7 @@
 
 - `Optimizer.Core` mantém modelos e fluxos puros, incluindo planos sintéticos, VIDEOIDLE e operações AC/DC do modo de energia configurado.
 - `Optimizer.Windows` consulta WMI e implementa adaptadores Win32 PowrProf. Criar os adaptadores não chama setters.
+- `Optimizer.Windows` lê as interfaces de rede por `NetworkInterface.GetAllNetworkInterfaces`; resolução DNS e ICMP ficam em métodos assíncronos e são chamados somente pelo botão de teste.
 - `Optimizer.App` é WPF com manifesto `asInvoker`, inicia em diagnóstico. Leitura/captura real de VIDEOIDLE e modo de energia só ocorre após clique explícito. A UI do modo de energia tem comandos de aplicação/restauração que começam desabilitados e exigem consentimento, autorização separada e frase exata.
 - As políticas de mutação real negam por padrão. Não há serviço, worker elevado, tarefa privilegiada ou daemon.
 - `Optimizer.Core.Tests` executa cenários com adaptador/storage falsos; o harness não chama PowrProf.
@@ -28,10 +29,21 @@ Drivers vêm de Win32_PnPSignedDriver. Códigos de problema são lidos separadam
 
 Hardware vem de consultas de leitura ao WMI e da chave HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion. Valores que não chegam do Windows ficam desconhecidos. O app não coleta número de série, MAC ou endereços IP na primeira versão. IDs PnP ficam somente em memória e não entram no CSV.
 
+## Diagnóstico de rede
+
+A página Rede mostra nomes/descritivos locais de interface, estado, endereços, gateways, DNS e velocidade de enlace reportada pelo adaptador. Essa velocidade não é velocidade contratada ou medida da internet. A enumeração .NET pode incluir interfaces virtuais, túneis e loopback; a interface informa esse escopo em vez de tratar cada linha como conexão física.
+
+Carregar/atualizar adaptadores é leitura local e não envia sondagens. Um teste só começa pelo botão explícito, apresenta o host/IP e a finalidade antes do clique, tenta resolver nome se necessário e então envia até quatro pacotes ICMP pequenos, sequenciais, para um IP resolvido mostrado no resultado. O timeout é de 1.000 ms por amostra; o resultado mostra amostras concluídas/solicitadas, respostas, perda entre as concluídas, RTT e duração total. O cancelamento conserva resultados parciais. Não existe teste de download.
+
+Falha do inventário local, ausência de interface operacional com endereço não loopback, falha DNS, timeouts sem resposta, outros erros ICMP, resposta parcial e cancelamento são resultados distintos. Ausência de resposta ICMP pode decorrer de bloqueio no host/rota/regras e não prova falta de internet. Nenhum código altera DNS, interface, firewall, Registro, políticas ou configurações de rede. Esses dados não são incluídos na exportação diagnóstica sanitizada.
+
 ## Dependências e evidência técnica
 
 - .NET 10: [ciclo oficial de suporte](https://learn.microsoft.com/dotnet/core/releases-and-support).
 - WMI de assinatura: [Win32_PnPSignedDriver](https://learn.microsoft.com/previous-versions/windows/desktop/whqlprov/win32-pnpsigneddriver).
+- Interfaces locais: [NetworkInterface.GetAllNetworkInterfaces](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.networkinterface.getallnetworkinterfaces).
+- Resolução: [Dns.GetHostAddressesAsync com CancellationToken](https://learn.microsoft.com/en-us/dotnet/api/system.net.dns.gethostaddressesasync?view=net-10.0).
+- ICMP assíncrono com timeout e cancelamento: [Ping.SendPingAsync](https://learn.microsoft.com/en-us/dotnet/api/system.net.networkinformation.ping.sendpingasync?view=net-10.0).
 - Estado Plug and Play: [Win32_PnPEntity](https://learn.microsoft.com/windows/win32/cimwin32prov/win32-pnpentity).
 - Consulta WMI: [ManagementObjectSearcher](https://learn.microsoft.com/dotnet/api/system.management.managementobjectsearcher?view=net-10.0).
 - Pacote: [System.Management 10.0.12](https://www.nuget.org/packages/System.Management/10.0.12).

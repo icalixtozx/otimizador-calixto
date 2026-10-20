@@ -26,6 +26,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new AdjustmentCatalog([]),
             new WindowsVideoIdlePowerAdapter(),
             new WindowsPowerModeAdapter());
+        Network = new NetworkPageViewModel(new Optimizer.Core.Network.NetworkDiagnosticsService(new WindowsNetworkDiagnosticsAdapter()));
         _currentPage = Overview;
         NavigationItems =
         [
@@ -34,7 +35,7 @@ public sealed class MainWindowViewModel : ObservableObject
             new("profiles", "Planos", "◉", true, null),
             new("tweaks", "Ajustes", "⌁", false, "Depois"),
             new("games", "Jogos", "◇", false, "Depois"),
-            new("network", "Rede", "⌘", false, "Depois"),
+            new("network", "Rede", "⌘", true, null),
             new("history", "Histórico", "↺", true, null),
             new("settings", "Configurações", "⚙", false, "Depois")
         ];
@@ -45,6 +46,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public OverviewPageViewModel Overview { get; }
     public DriversPageViewModel Drivers { get; }
     public ProfilesPageViewModel Profiles { get; }
+    public NetworkPageViewModel Network { get; }
     public ObservableCollection<NavigationItem> NavigationItems { get; }
     public RelayCommand<string> NavigateCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
@@ -94,6 +96,14 @@ public sealed class MainWindowViewModel : ObservableObject
             CurrentPage = Profiles;
             UpdateSelectedNavigation(key);
             _ = Profiles.LoadHistoryAsync();
+        }
+        else if (key is "network")
+        {
+            SelectedNavigationKey = key;
+            PageTitle = "Rede";
+            CurrentPage = Network;
+            UpdateSelectedNavigation(key);
+            _ = Network.LoadAdaptersAsync();
         }
     }
 

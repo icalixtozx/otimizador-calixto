@@ -3,6 +3,8 @@ using Optimizer.Core.Inventory;
 using Optimizer.Core.Profiles;
 using Optimizer.Core.Consent;
 using Optimizer.Core.Recovery;
+using Optimizer.Core.Network;
+using System.Net;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -59,7 +61,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("power-mode restoration refuses a changed active plan", PowerModeRevertRefusesChangedActivePlan),
     ("power-mode journal failure before first write leaves fake Windows unchanged", PowerModeJournalFailurePreventsWrite),
     ("power-mode store rejects tampered captures", PowerModeStoreRejectsTamperedCapture),
-    ("power-mode store rejects an unsupported persisted state", PowerModeStoreRejectsUnsupportedState)
+    ("power-mode store rejects an unsupported persisted state", PowerModeStoreRejectsUnsupportedState),
+    ("network diagnostic classifies successful probes and reports bounded measurements", NetworkSuccessReportsMeasurements),
+    ("network diagnostic separates DNS failure from probe failure", NetworkDnsFailureIsDistinct),
+    ("network diagnostic reports ICMP timeouts without claiming internet loss", NetworkTimeoutIsInconclusive),
+    ("network diagnostic distinguishes unreachable errors from timeouts", NetworkProbeFailureIsDistinct),
+    ("network diagnostic identifies missing local link before active traffic", NetworkNoConnectionSkipsProbe),
+    ("network diagnostic distinguishes local inventory failure from no connection", NetworkAdapterReadFailureIsNotOffline),
+    ("network diagnostic preserves partial responses and loss counts", NetworkPartialResultsArePreserved),
+    ("network diagnostic cancellation returns completed partial measurements", NetworkCancellationPreservesPartialResults),
+    ("network diagnostic rejects URLs and unbounded probe settings", NetworkInputIsBounded)
 };
 
 var failures = 0;
@@ -92,6 +103,114 @@ static void SearchFiltersRows()
     var result = DriverCatalog.Filter(rows, "sample graphics", DriverSignatureFilter.All);
     Assert(result.Count == 1, "case-insensitive filter should return one row");
     Assert(result[0].DeviceName == "Sample Graphics Adapter", "wrong row returned");
+}
+
+static async Task NetworkSuccessReportsMeasurements()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    fake.Probes.Enqueue(new(NetworkProbeStatus.Success, 8));
+    fake.Probes.Enqueue(new(NetworkProbeStatus.Success, 10));
+    var service = new NetworkDiagnosticsService(fake);
+    var progressValues = new List<NetworkProbeProgress>();
+
+    var result = await service.TestConnectivityAsync("example.test", 2, 700,
+        new InlineProgress<NetworkProbeProgress>(progressValues.Add));
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.Success, "all replies should be classified as success");
+    Assert(result.ResolvedAddress?.ToString() == "198.51.100.20", "result should show the selected resolved IP");
+    Assert(result.RequestedSamples == 2 && result.CompletedSamples == 2, "requested and completed samples should be explicit");
+    Assert(result.TimeoutMilliseconds == 700 && result.DurationMilliseconds >= 0, "timeout and total duration should be recorded");
+    Assert(result.MinimumRoundtripMilliseconds == 8 && result.MaximumRoundtripMilliseconds == 10, "RTT extrema should match fake replies");
+    Assert(result.LossPercentage == 0 && progressValues.Count == 2, "zero loss and per-sample progress should be reported");
+}
+
+static async Task NetworkDnsFailureIsDistinct()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    fake.ResolutionError = new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.HostNotFound);
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("missing.invalid");
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.DnsResolutionFailed, "resolver failure should have its own outcome");
+    Assert(fake.ProbeCount == 0 && result.CompletedSamples == 0, "no ICMP probe should be sent after DNS failure");
+}
+
+static async Task NetworkTimeoutIsInconclusive()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    for (var index = 0; index < 3; index++) fake.Probes.Enqueue(new(NetworkProbeStatus.TimedOut));
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("example.test", 3, 250);
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.NoIcmpResponses, "all timed-out probes should be classified distinctly");
+    Assert(result.TimedOutSamples == 3 && result.LostResponses == 3 && result.LossPercentage == 100, "timeouts should count as unanswered samples");
+    Assert(result.Summary.Contains("não comprova falta de internet", StringComparison.OrdinalIgnoreCase), "timeout must not be described as no internet");
+}
+
+static async Task NetworkProbeFailureIsDistinct()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    fake.Probes.Enqueue(new(NetworkProbeStatus.DestinationUnreachable, StatusDetail: "DestinationNetworkUnreachable"));
+    fake.Probes.Enqueue(new(NetworkProbeStatus.DestinationUnreachable, StatusDetail: "DestinationNetworkUnreachable"));
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("example.test", 2);
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.ProbeFailed, "unreachable errors should not be classified as timeouts");
+    Assert(result.TimedOutSamples == 0 && result.FailedSamples == 2, "native ICMP error counts should remain distinct");
+}
+
+static async Task NetworkNoConnectionSkipsProbe()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected(isOperational: false);
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("example.test");
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.NoActiveConnection, "inactive local adapter should be identified before resolving");
+    Assert(fake.ResolveCount == 0 && fake.ProbeCount == 0, "offline preflight should send neither DNS nor ICMP traffic");
+}
+
+static async Task NetworkAdapterReadFailureIsNotOffline()
+{
+    var fake = new FakeNetworkDiagnosticsAdapter(new NetworkInventoryResult(DateTimeOffset.UtcNow, [], ["synthetic read error"]));
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("example.test");
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.AdapterReadFailed, "failed local inventory must not be described as disconnected");
+    Assert(fake.ResolveCount == 0 && fake.ProbeCount == 0, "an incomplete local preflight must stop active traffic");
+}
+
+static async Task NetworkPartialResultsArePreserved()
+{
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    fake.Probes.Enqueue(new(NetworkProbeStatus.Success, 12));
+    fake.Probes.Enqueue(new(NetworkProbeStatus.TimedOut));
+    fake.Probes.Enqueue(new(NetworkProbeStatus.DestinationUnreachable, StatusDetail: "DestinationHostUnreachable"));
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync("example.test", 3, 800);
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.PartialResponses, "one response and failures should be partial");
+    Assert(result.CompletedSamples == 3 && result.RepliesReceived == 1 && result.LostResponses == 2, "partial counters should be internally consistent");
+    Assert(result.TimedOutSamples == 1 && result.FailedSamples == 1, "timeout and other ICMP errors should remain separate");
+    Assert(result.ProbeDetails.Contains("DestinationHostUnreachable"), "native status detail should be retained");
+}
+
+static async Task NetworkCancellationPreservesPartialResults()
+{
+    using var cancellation = new CancellationTokenSource();
+    var fake = FakeNetworkDiagnosticsAdapter.Connected();
+    fake.Probes.Enqueue(new(NetworkProbeStatus.Success, 6));
+    fake.BeforeProbe = index =>
+    {
+        if (index == 2) cancellation.Cancel();
+    };
+    var result = await new NetworkDiagnosticsService(fake).TestConnectivityAsync(
+        "example.test", 4, 1000, cancellationToken: cancellation.Token);
+
+    Assert(result.Outcome == NetworkConnectivityOutcome.Cancelled, "user cancellation should be visible");
+    Assert(result.CompletedSamples == 1 && result.RepliesReceived == 1, "completed sample must survive cancellation");
+    Assert(fake.ProbeCount == 2, "no further probe should run after cancellation");
+}
+
+static async Task NetworkInputIsBounded()
+{
+    var service = new NetworkDiagnosticsService(FakeNetworkDiagnosticsAdapter.Connected());
+    await AssertThrowsAsync<ArgumentException>(() => service.TestConnectivityAsync("https://example.test/path"));
+    await AssertThrowsAsync<ArgumentOutOfRangeException>(() => service.TestConnectivityAsync("example.test", 11));
+    await AssertThrowsAsync<ArgumentOutOfRangeException>(() => service.TestConnectivityAsync("example.test", 1, 6000));
 }
 
 static void SignatureFilterKeepsUnknownSeparate()
@@ -1307,6 +1426,47 @@ sealed class FakePowerModeAdapter(UserConfiguredPowerMode acMode, UserConfigured
         if (DcErrorCode is null) DcMode = mode;
     }
 }
+
+sealed class FakeNetworkDiagnosticsAdapter(NetworkInventoryResult inventory) : INetworkDiagnosticsAdapter
+{
+    public Queue<NetworkProbeReply> Probes { get; } = new();
+    public Exception? ResolutionError { get; set; }
+    public Action<int>? BeforeProbe { get; set; }
+    public int ResolveCount { get; private set; }
+    public int ProbeCount { get; private set; }
+
+    public static FakeNetworkDiagnosticsAdapter Connected(bool isOperational = true) => new(
+        new NetworkInventoryResult(DateTimeOffset.UtcNow,
+            [new NetworkAdapterInfo("simulated", "Synthetic adapter", "Ethernet", isOperational ? "Up" : "Down",
+                isOperational, 1_000_000_000, ["192.0.2.10"], ["192.0.2.1"], ["192.0.2.53"])],
+            []));
+
+    public NetworkInventoryResult ReadAdapters() => inventory;
+
+    public Task<IReadOnlyList<IPAddress>> ResolveHostAsync(string hostName, CancellationToken cancellationToken)
+    {
+        ResolveCount++;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (ResolutionError is not null) throw ResolutionError;
+        IReadOnlyList<IPAddress> addresses = [IPAddress.Parse("198.51.100.20")];
+        return Task.FromResult(addresses);
+    }
+
+    public Task<NetworkProbeReply> ProbeAsync(IPAddress destination, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ProbeCount++;
+        BeforeProbe?.Invoke(ProbeCount);
+        cancellationToken.ThrowIfCancellationRequested();
+        var reply = Probes.Count > 0 ? Probes.Dequeue() : new NetworkProbeReply(NetworkProbeStatus.TimedOut);
+        return Task.FromResult(reply);
+    }
+}
+
+sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}
+
 enum JournalWriteFailure
 {
     None,
