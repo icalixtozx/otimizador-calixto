@@ -1,6 +1,6 @@
 # Progresso
 
-Última atualização: 2026-10-19
+Última atualização: 2026-10-20
 Base das etapas anteriores: c150a51430e603f4bc2ca9f0536383c337efab37. Continuação atual iniciada no commit 6138ef27d69c3ac305f32e1bbb515f29433ed757; matriz atual na seção 17.
 Versão de desenvolvimento: 0.6.0-experimental (ZIP e instalador locais gerados). A tag e os artefatos 0.5.0 permanecem no commit de release anterior. Não validado em outro computador.
 
@@ -594,7 +594,7 @@ Continuação do commit `a5d2db890fc5a4f99373fecf16a5f31b4899c6d0`, na raiz ofic
 
 ## 25. Identificação do Windows e evidência de drivers — 2026-10-19
 
-Continuação do commit `14aab7cbe28aa41f3b052d10933ab281a094d5db`, na raiz oficial `C:\Users\Computador\Documents\meu otimizador`. Nenhum pacote Preview novo foi gerado.
+Continuação do commit `14aab7cbe28aa41f3b052d10933ab281a094d5db`, na raiz oficial `<raiz do repositório>`. Nenhum pacote Preview novo foi gerado.
 
 ### Correção da identificação do Windows
 
@@ -613,7 +613,7 @@ Continuação do commit `14aab7cbe28aa41f3b052d10933ab281a094d5db`, na raiz ofic
 
 ### Validação desta etapa
 
-- Raiz Git preservada; SDK explicitamente usado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402 (único SDK em `--list-sdks`); `dotnet --info` reportou MSBuild 18.9.15, host/runtime 10.0.13 e RID `win-x64`. Diretório de build `C:\Users\Computador\Documents\meu otimizador`.
+- Raiz Git preservada; SDK explicitamente usado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402 (único SDK em `--list-sdks`); `dotnet --info` reportou MSBuild 18.9.15, host/runtime 10.0.13 e RID `win-x64`. Diretório de build `<raiz do repositório>`.
 - Repetição final do build Release completo da solução: sucesso, 0 avisos e 0 erros. Harness Core: **91/91** verificações simuladas passaram. Uma tentativa anterior desta etapa falhou por inferência de tipo nullable; a correção foi aplicada e as execuções finais de build, harness e probe real passaram.
 - Validação real do serviço `WmiComputerInventoryService` executada por um probe temporário de console fora do repositório e sem escrita no Windows: `WindowsName=Windows 11`, `Edition=Professional`, `Version=26H2`, `Build=26300.9711`, placa `ASUSTeK COMPUTER INC. PRIME B550M-A AC`. O serviço retornou os avisos previstos para `ProductName` divergente e canal Insider não consultado. Nenhum dado de série, nome do computador, usuário, IP ou endereço MAC foi coletado para a validação/documentação.
 - Nenhum pacote de driver foi baixado/instalado/removido; nenhuma configuração de sistema foi alterada. O app instalado em `%LOCALAPPDATA%` permanece na versão anterior; não foi gerado instalador/Preview nesta etapa.
@@ -739,7 +739,7 @@ Os resultados completos e os candidatos ASUS estão em `docs/DRIVER-ASSISTED-INS
 
 ### Build, testes e validação visual
 
-- Raiz Git: `C:\Users\Computador\Documents\meu otimizador`; branch `main`, Preview R2 preservado. SDK explícito `C:\Users\Computador\AppData\Local\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402.
+- Raiz Git: `<raiz do repositório>`; branch `main`, Preview R2 preservado. SDK explícito `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402.
 - `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: **sucesso**, 0 avisos, 0 erros.
 - Harness `Optimizer.Core.Tests` Release: **100/100** verificações. ZIP traversal/limites, raiz do ZIP, INF auxiliar, IDs exatos/genéricos, incompatibilidade, ambiguidade, payload ausente, hash, preview/consentimento/diário e separação staging/associação são checks de modelo com verificadores/instaladores simulados. Eles não comprovam instalação real de drivers.
 - Validação real separada: leitura WMI atual (193 linhas), assinatura/membership via SetupAPI/WinTrust e conteúdo dos dois ZIPs locais. LAN passou nos checks implementados; Wi-Fi permaneceu incompleto pelos arquivos ausentes. Nenhuma chamada PnPUtil, Setup ou API de instalação ocorreu.
@@ -805,3 +805,36 @@ Continuação a partir do commit `e817913a2b4dc6783f525c7c4de770493d6e4829`; Pre
 ### Próxima etapa e limites mantidos
 
 Continuam pendentes: inspeção manual/visual da tela atual; implementação direcionada de associação por `DiInstallDevice` após staging; instalação de driver somente após aprovação específica; validação funcional, recuperação/desinstalação e outro PC. O resultado de leitura de pacote não é autorização para instalar.
+
+## 30. Associação direcionada preparada e dependências INF recursivas — 2026-10-20
+
+Continuação a partir do commit `516184eaa7f95e5f1e67a65833b6aa92d89c3c6b`. Nenhum instalador foi gerado. Nenhum staging, associação, instalação, remoção, reinício ou outra mutação do Windows foi executado. As declarações de dependência direta e backend PnPUtil nas seções históricas anteriores foram substituídas por esta etapa.
+
+### Implementação
+
+- Backend de staging/associação usa APIs documentadas do Windows: `SetupCopyOEMInfW` para staging separado e `DiInstallDevice` com `SP_DEVINFO_DATA` e `SP_DRVINFO_DATA` explícitos para a associação de um devnode e candidato.
+- A enumeração lê ranks de drivers compatíveis do alvo; o pacote staged só pode ser selecionado se aparecer exatamente uma vez e for o único candidato de melhor rank. Ausência, empate, rank inferior ou recusa do Windows bloqueiam. Nenhuma opção de força, compatibilidade ignorada ou downgrade é usada.
+- Antes da operação, o serviço relê inventário/Hardware ID/INF atual. O adaptador nativo repete a validação de instance ID, Hardware ID e INF ativo imediatamente antes de chamar a API e chama `CM_Locate_DevNodeW` com `CM_LOCATE_DEVNODE_NORMAL`; dispositivo removido, devnode trocado ou identidade divergente são recusados. A validação não é atômica com a chamada; há uma janela de corrida residual.
+- Estados permanecem distintos no serviço/diário: staging concluído (não associado), associação pendente de reinício (sem verificação do driver ativo), associação não verificada e associação verificada por nova leitura WMI do mesmo devnode/INF. O app nunca reinicia o PC; mesmo uma leitura do INF ativo não prova que o hardware funciona.
+- Staging altera o Driver Store do computador e pode disponibilizar o pacote a futuras instâncias correspondentes. Diretivas e seções de instalação como `CopyINF`, serviços, filtros e componentes podem trazer efeitos adicionais além do devnode alvo. O app não promete isolamento total nem remove automaticamente pacotes/efeitos parciais.
+- `Include`/`Needs` das seções aplicáveis são resolvidos recursivamente no INF de sistema. O resolver mantém o nome literal (inclusive decoração) que a diretiva `Needs` refere, requer uma única seção proprietária, detecta ciclo/ambiguidade e limita a 64 INF, 32 níveis, 256 seções alcançadas, 16.384 cabeçalhos, 8 MiB/arquivo e 32 MiB totais. Referência necessária ausente, parametrizada, fora de escopo, inacessível ou além dos limites dá análise incompleta e impede elegibilidade; não é presumida compatível.
+- `Include`/`Needs` vazios ou com campos vazios não são descartados silenciosamente; `CopyINF` encontrado em dependência do sistema, `AddSoftware` aplicável e `AddReg` alcançável em `.CoInstallers` bloqueiam elegibilidade enquanto seus efeitos/dependências não forem verificados. Isso fecha falsos positivos por diretivas de instalação que poderiam adicionar pacotes, instalar software à parte ou registrar DLL de co-installer.
+- Limitações: assinatura dos INF incluídos de `%WINDIR%\INF` não é revalidada; parser não representa todos os efeitos/gramáticas do SetupAPI. Construções que não são verificadas integralmente continuam bloqueadas. O verificador não interpreta nem autoriza efeitos sistêmicos adicionais declarados pelo INF.
+- Produção continua composta com `BlockedDriverPackageMutationPolicy`; staging e associação reais param antes do backend. A UI e a captura/consentimento não habilitam a execução.
+
+### Testes e validação
+
+- SDK explicitamente usado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; `global.json` não foi alterado.
+- Harness Core: **109/109** checks simulados aprovados. Cobre dependência recursiva/ciclo, seção decorada explícita, dependência ausente, `CopyINF` alcançável, entradas `Include`/`Needs` vazias, `AddSoftware`, registro de co-installer, limites, melhor rank único versus rank inferior/empate/ausente, dispositivo removido, Hardware ID alterado, staging com falha, associação recusada e reinício pendente. O teste de reinício confirma que nenhum resultado de driver ativo é declarado antes de nova leitura.
+- A build Release normal encontrou bloqueio de arquivo: o executável aberto para revisão visual (PID 24540) segurava `Optimizer.App.exe`. Sem encerrá-lo, `dotnet build ... -p:UseAppHost=false` compilou toda a solução com 0 erros e 1 aviso MSB3061 pelo apphost em uso. Os 109 checks foram executados por `dotnet.exe` sobre a DLL do harness. A janela foi preservada.
+- Os testes usam dispositivos, INF e adaptadores simulados/descartáveis. Não chamam `SetupCopyOEMInfW`, `DiInstallDevice` nem qualquer setter/ação real de driver.
+- `DiInstallDevice`/P/Invoke passou por compilação; a compilação não valida chamada nativa, assinatura binária, staging ou associação no Windows. Nenhuma operação real foi executada.
+- Probe real somente leitura após os bloqueios conservadores: inventário WMI `Available`, 189 linhas, zero avisos; Windows 11 Professional 26H2 build 26300.9711, x64. LAN `rt68cx21x64.inf` e Wi-Fi `netrtwlane.inf` retornaram **Compatível segundo as verificações realizadas**, cada um com uma correspondência exata e prévia elegível. LAN resolveu `pci.inf`/`PciIoSpaceNotRequired.HW` recursivamente (1 INF, 1 seção); Wi-Fi resolveu 3 INF e 5 seções. Hashes locais dos ZIPs e resultados de assinatura/INF/payload foram rechecados. Isso não executou seleção de rank nem staging/associação.
+- Para a lista PnP, o adaptador configura `DI_FLAGSEX_ALLOWEXCLUDEDDRVS`, requerido por `SetupDiBuildDriverInfoList` para enumerar arquivos de driver PnP segundo a documentação Microsoft. Isso inclui `ExcludeFromSelect` na lista; não usa flag de força em `DiInstallDevice`, e o candidato continua obrigado a ser compatível e único melhor rank. A documentação também observa que PnP costuma estar excluído de seleção manual; a operação permanece bloqueada por padrão e sem validação nativa.
+
+### Interface visual e pendências
+
+- Iniciei o executável Release desta raiz. CIM confirmou PID **24540** em `<raiz do repositório>\src\Optimizer.App\bin\Release\net10.0-windows\Optimizer.App.exe`. `sky.list_apps` retornou uma janela `Optimizer.App.exe`, mas o AppID/path owner era `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`, diferente do PID/caminho confirmado. Parei antes de chamar `get_window`, capturar ou clicar; não contornei o bloqueio de identidade. A interface desta compilação não foi validada visualmente. O executável Release permanece aberto para checklist manual.
+- Checklist manual consolidado permanece válido: Drivers (candidatos, pendências, prévia, escopo e bloqueio), Processos (seleção e consequência sem encerrar/aplicar), Registro (prévia e escrita bloqueada), Rede (carregamento sem sondagem) e Energia (diagnóstico sem setters); conferir histórico apenas como captura revisada e não como ajuste aplicado. Nenhum item visual é promovido a aprovado sem observação.
+- Staging real em chave/driver de teste, associação real, instalação limpa, rollback/desinstalação, validação de conectividade e teste em outro computador permanecem pendentes e requerem aprovações/plano próprio. A ausência de teste real não é coberta pelos 108 checks simulados.
+- Nenhum novo instalador/ZIP foi produzido; Preview R2 permanece preservado e não contém as mudanças desta etapa.

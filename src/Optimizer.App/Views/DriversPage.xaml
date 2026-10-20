@@ -186,7 +186,7 @@
               <StackPanel>
                 <TextBlock Text="Candidatos ASUS revisados" FontSize="14" FontWeight="Bold" />
                 <TextBlock Text="A avaliação usa o inventário Plug and Play local e os arquivos revisados nesta etapa. Ela não compara versões para declarar driver desatualizado e não instala nada." FontSize="10" Foreground="#686868" TextWrapping="Wrap" Margin="0,5,0,0" />
-                <TextBlock Text="Etapas distintas: análise e prévia não mudam o sistema; staging adicionaria o pacote ao Driver Store; associação selecionaria um driver para um dispositivo. Staging e associação continuam bloqueados." FontSize="10" FontWeight="SemiBold" Foreground="#5A4A2A" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <TextBlock Text="Etapas distintas: análise e prévia são somente leitura; staging adicionaria o pacote ao Driver Store da máquina; a associação usa DiInstallDevice para um devnode e um driver selecionados, somente se for o candidato compatível de melhor rank. O INF ainda pode trazer efeitos adicionais. Staging e associação continuam bloqueados." FontSize="10" FontWeight="SemiBold" Foreground="#5A4A2A" TextWrapping="Wrap" Margin="0,5,0,0" />
                 <TextBlock Text="{Binding CandidateInventoryStatus}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,6,0,0" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                   <Button Style="{StaticResource QuietButton}" Command="{Binding ImportLocalPackageCommand}" IsEnabled="{Binding IsNotLoading}">

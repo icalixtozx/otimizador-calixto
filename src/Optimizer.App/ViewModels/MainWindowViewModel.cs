@@ -38,12 +38,12 @@ public sealed class MainWindowViewModel : ObservableObject
             new LocalDriverPackageAnalyzer(driverSignatureVerifier, new WindowsSystemInfDependencyResolver()),
             new DriverPackageInstallationService(
                 driverInventoryService,
-                new PnpUtilDriverPackageInstaller(),
+                new WindowsDirectedDriverPackageInstaller(),
                 driverSignatureVerifier,
                 sharedJournalStore,
                 sharedConsent,
                 sharedJournal,
-                new BlockedDriverPackageMutationPolicy("Instalação de drivers está bloqueada nesta etapa; nenhuma chamada ao PnPUtil será iniciada.")));
+                new BlockedDriverPackageMutationPolicy("Staging e associação reais de drivers estão bloqueados nesta etapa; nenhuma API de mutação será chamada.")));
         Profiles = new ProfilesPageViewModel(
             OptimizerProfileCatalog.CreateDefault(),
             new AdjustmentCatalog([]),

@@ -12,6 +12,7 @@ namespace Optimizer.Core.Inventory;
 /// </summary>
 public sealed class DriverPackageInstallationService
 {
+    private const string StagedInfPathPrefix = "StagedInfPath=";
     public const string AdjustmentId = "driver.assisted.install";
     public const string ProfileId = "driver-assisted-install";
 
@@ -62,7 +63,7 @@ public sealed class DriverPackageInstallationService
 
         var packageName = candidate.SourceFileName ?? Path.GetFileName(candidate.InfPath);
         var identityHash = HashText(targetDevice.DeviceId);
-        var consequence = $"Operação administrativa para o dispositivo {targetDevice.DeviceName}: origem {packageName} ({candidate.SourceHashLabel} {candidate.SourceSha256[..12]}…), INF {candidate.InfName}, versão declarada {candidate.DriverVersion ?? "não informada"}. A instalação pode desconectar temporariamente o adaptador e pode exigir reinicialização. O Windows pode manter a seleção atual se o pacote não tiver melhor classificação; não será forçado downgrade. Reversão não é garantida e exigirá revisão manual.";
+        var consequence = $"Operação administrativa para o dispositivo {targetDevice.DeviceName}: origem {packageName} ({candidate.SourceHashLabel} {candidate.SourceSha256[..12]}…), INF {candidate.InfName}, versão declarada {candidate.DriverVersion ?? "não informada"}. A associação será tentada só se o INF staged aparecer como único candidato compatível de melhor rank; empate ou rank inferior será recusado, sem forçar downgrade. O adaptador pode desconectar e pode ser necessário reiniciar. O staging é no computador e o pacote pode ficar disponível para outros dispositivos correspondentes; diretivas do INF (como CopyINF, serviços ou filtros) podem ter efeitos adicionais. Reversão não é garantida e exigirá revisão manual.";
         var definition = new AdjustmentDefinition(
             AdjustmentId,
             1,
@@ -91,8 +92,8 @@ public sealed class DriverPackageInstallationService
             "Administrador do Windows. Esta versão não usa worker elevado separado; a operação futura só poderá chamar o backend se o processo já estiver elevado.",
             "O adaptador de rede pode cair durante a troca; conectividade remota pode ser perdida. O Windows pode solicitar reinicialização. Nenhum ganho de desempenho é previsto.",
             "A captura registra somente o driver ativo antes da operação. Não garante recuperação do fabricante, não remove pacotes do Driver Store e não substitui um ponto de restauração. A recuperação de dispositivo que deixe de iniciar requer procedimento manual/OEM.",
-            "Alcance atualmente enumerado na análise: " + candidate.TargetSummary + " " +
-            "Limite do backend atual: PnPUtil /install não aceita o ID da instância; ele pode atuar em qualquer dispositivo correspondente ao pacote. O conjunto pode mudar após a análise (por exemplo, conexão de outro dispositivo). Esta prévia de um alvo não restringe esse comando a um único devnode. Associação real continua bloqueada até adoção de uma API direcionada.");
+            "Alvo enumerado na análise: " + candidate.TargetSummary + ". DiInstallDevice será chamado com o SP_DEVINFO_DATA e o SP_DRVINFO_DATA deste devnode; a identidade, Hardware ID e INF ativo são relidos imediatamente antes da chamada. " +
+            "O staging do pacote altera o Driver Store da máquina e pode tornar o pacote disponível para futuras instâncias correspondentes. Diretivas do INF, como CopyINF, AddService, filtros ou componentes, podem ampliar efeitos além do alvo. CopyINF pode stagingar pacotes adicionais, e o Windows documenta que, em certas condições, pacotes copiados podem ser instalados em dispositivos aplicáveis. O app não usa a flag de instalação de CopyINF e não promete isolamento total dos efeitos declarados pelo INF. Operações reais continuam bloqueadas por política.");
     }
 
     /// <summary>Records accepted consequences and a fresh read-only device snapshot; never invokes a setter.</summary>
@@ -151,7 +152,7 @@ public sealed class DriverPackageInstallationService
         CancellationToken cancellationToken = default) =>
         ExecuteMutationStepAsync(review, operationId, install: false, cancellationToken);
 
-    public Task<DriverPackageInstallStepResult> InstallOnMatchingDeviceAsync(
+    public Task<DriverPackageInstallStepResult> AssociateWithTargetDeviceAsync(
         DriverPackageInstallReview review,
         Guid operationId,
         CancellationToken cancellationToken = default) =>
@@ -212,11 +213,34 @@ public sealed class DriverPackageInstallationService
                 await _journalStore.SaveAsync(entry, cancellationToken);
             }
 
-            var command = install
-                ? await _installer.InstallOnMatchingDeviceAsync(review.Candidate.InfPath, cancellationToken)
-                : await _installer.StageToDriverStoreAsync(review.Candidate.InfPath, cancellationToken);
+            string? stagedInfPath = null;
+            DriverPackageCommandResult command;
+            if (install)
+            {
+                var stageEvent = entry.Events.LastOrDefault(item => item.EventType == "DriverPackageStagedToDriverStore");
+                stagedInfPath = ExtractStagedInfPath(stageEvent?.Message);
+                if (string.IsNullOrWhiteSpace(stagedInfPath))
+                    return new(DriverPackageInstallStepStatus.RefusedByStateConflict, null, false,
+                        "O diário não contém o caminho do INF publicado pelo estágio; uma associação por alvo não pode ser identificada com segurança.");
+                command = await _installer.AssociateWithDeviceAsync(new(
+                    review.DeviceInstanceId,
+                    review.Candidate.DeviceMatches[0].MatchedId,
+                    review.CurrentDriver.InfName ?? "",
+                    stagedInfPath), cancellationToken);
+            }
+            else
+            {
+                command = await _installer.StageToDriverStoreAsync(review.Candidate.InfPath, cancellationToken);
+            }
             if (!command.Succeeded)
             {
+                if (command.Refusal is not null)
+                {
+                    entry = _journal.MarkConflict(entry, command.Detail + " Nenhuma associação foi concluída.");
+                    await _journalStore.SaveAsync(entry, CancellationToken.None);
+                    return new(DriverPackageInstallStepStatus.RefusedByStateConflict,
+                        command.ExitCode, command.RebootMayBeRequired, command.Detail);
+                }
                 entry = _journal.MarkFailed(entry, command.Detail);
                 await _journalStore.SaveAsync(entry, CancellationToken.None);
                 return new(command.ExitCode is 5 or 740 ? DriverPackageInstallStepStatus.AccessDenied : DriverPackageInstallStepStatus.Failed,
@@ -225,24 +249,41 @@ public sealed class DriverPackageInstallationService
 
             if (!install)
             {
+                if (string.IsNullOrWhiteSpace(command.StagedInfPath))
+                {
+                    entry = _journal.MarkFailed(entry, "O adaptador reportou staging, mas não informou o INF publicado necessário para associação direcionada.");
+                    await _journalStore.SaveAsync(entry, CancellationToken.None);
+                    return new(DriverPackageInstallStepStatus.Failed, command.ExitCode, command.RebootMayBeRequired, entry.Events.Last().Message);
+                }
+                stagedInfPath = command.StagedInfPath;
                 entry = _journal.RecordProgress(entry, "DriverPackageStagedToDriverStore",
-                    "A chamada de adição ao Driver Store retornou êxito. Isso não comprova que o driver esteja associado ao dispositivo.");
+                    $"{StagedInfPathPrefix}{stagedInfPath}\n{command.Detail} O pacote está no Driver Store; nenhum dispositivo foi associado.");
                 await _journalStore.SaveAsync(entry, CancellationToken.None);
                 return new(DriverPackageInstallStepStatus.DriverStoreStagedNotAssociated,
                     command.ExitCode, command.RebootMayBeRequired,
-                    "PnPUtil informou êxito ao adicionar o pacote ao Driver Store. A associação ao dispositivo ainda não foi verificada.");
+                    $"SetupCopyOEMInf informou staging do pacote como {Path.GetFileName(stagedInfPath)} no Driver Store. A associação ao dispositivo ainda não foi executada.");
+            }
+
+            if (command.RebootMayBeRequired == true)
+            {
+                entry = _journal.RecordProgress(entry, "DriverDeviceAssociationRestartPending",
+                    $"A API direcionada retornou que o reinício é necessário para concluir a associação do INF {Path.GetFileName(stagedInfPath)} no dispositivo alvo. Nenhum reinício foi executado; o driver ativo não foi declarado verificado.");
+                await _journalStore.SaveAsync(entry, CancellationToken.None);
+                return new(DriverPackageInstallStepStatus.DeviceAssociationPendingRestart,
+                    command.ExitCode, true,
+                    "A associação direcionada solicitou reinício. O app não reinicia o PC; confira o INF ativo após reiniciar manualmente.");
             }
 
             var after = await _inventoryService.CollectAsync(cancellationToken);
             var target = after.Drivers.SingleOrDefault(driver =>
                 string.Equals(driver.DeviceId, review.DeviceInstanceId, StringComparison.OrdinalIgnoreCase));
             if (after.Availability == InventoryAvailability.Available && target is not null &&
-                string.Equals(target.InfName, review.Candidate.InfName, StringComparison.OrdinalIgnoreCase))
+                string.Equals(target.InfName, Path.GetFileName(stagedInfPath), StringComparison.OrdinalIgnoreCase))
             {
                 entry = _journal.RecordProgress(entry, "DriverDeviceAssociationVerified",
-                    $"A leitura Plug and Play posterior reportou INF {review.Candidate.InfName} no mesmo identificador de dispositivo; confirme o estado funcional do dispositivo separadamente.");
+                    $"A leitura Plug and Play posterior reportou o INF publicado {Path.GetFileName(stagedInfPath)} no mesmo identificador de dispositivo; confirme o estado funcional do dispositivo separadamente.");
                 entry = _journal.MarkMutationVerified(entry,
-                    "Associação confirmada pela releitura WMI do INF ativo no mesmo dispositivo; funcionamento e conectividade continuam exigindo validação manual.");
+                    "Associação direcionada confirmada pela releitura WMI do INF ativo no mesmo dispositivo; funcionamento e conectividade continuam exigindo validação manual.");
                 await _journalStore.SaveAsync(entry, CancellationToken.None);
                 return new(DriverPackageInstallStepStatus.DeviceAssociationVerified,
                     command.ExitCode, command.RebootMayBeRequired,
@@ -250,7 +291,7 @@ public sealed class DriverPackageInstallationService
             }
 
             entry = _journal.RecordProgress(entry, "DriverDeviceAssociationNotVerified",
-                "PnPUtil retornou êxito, mas a releitura do INF ativo não confirmou associação ao dispositivo-alvo. Revisão manual necessária.");
+                $"DiInstallDevice retornou êxito, mas a releitura do INF publicado {Path.GetFileName(stagedInfPath)} não confirmou associação ao dispositivo-alvo. Revisão manual necessária.");
             await _journalStore.SaveAsync(entry, CancellationToken.None);
             return new(DriverPackageInstallStepStatus.DeviceAssociationNotVerified,
                 command.ExitCode, command.RebootMayBeRequired,
@@ -365,6 +406,15 @@ public sealed class DriverPackageInstallationService
             review.Candidate.Outcome != DriverPackageAnalysisOutcome.CompatibleAccordingToChecks ||
             !review.Candidate.CanPrepareInstallation)
             throw new InvalidOperationException("A revisão de driver está incompleta ou não corresponde ao plano individual aprovado.");
+    }
+
+    private static string? ExtractStagedInfPath(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return null;
+        var firstLine = detail.Split(["\r\n", "\n"], StringSplitOptions.None)[0];
+        return firstLine.StartsWith(StagedInfPathPrefix, StringComparison.Ordinal)
+            ? firstLine[StagedInfPathPrefix.Length..].Trim()
+            : null;
     }
 
     private static string HashText(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

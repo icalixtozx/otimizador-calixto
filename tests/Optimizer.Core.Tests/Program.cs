@@ -38,11 +38,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("generic ZIP analysis blocks traversal and archive size-limit violations", GenericDriverPackageZipRejectsUnsafeAndOversizedInputs),
     ("generic package analysis separates compatible, incompatible, ambiguous, and incomplete candidates", GenericDriverPackageOutcomesAreConservative),
     ("INF payload checks follow only applicable DDInstall CopyFiles sections", GenericInfDependenciesFollowApplicableInstallSections),
+    ("INF analysis blocks unverified AddSoftware and co-installer registration effects", GenericInfAnalysisBlocksUnverifiedInstallEffects),
     ("INF analysis blocks unresolved required Windows Include and Needs dependencies", GenericInfAnalysisBlocksMissingSystemDependencies),
+    ("system INF dependencies resolve recursively with bounded cycle detection", SystemInfDependenciesResolveRecursivelyAndDetectCycles),
+    ("system INF dependencies retain explicitly decorated Needs sections", SystemInfDependenciesResolveDecoratedSections),
+    ("system INF dependency resolver enforces depth, file, and byte limits", SystemInfDependencyResolverEnforcesLimits),
+    ("directed driver selection refuses lower-ranked and tied candidates", () => RunSync(DriverStoreSelectionUsesUniqueBestRank)),
     ("INF model entries distinguish install section from Hardware and Compatible IDs", GenericInfModelMatchingUsesOnlyDeviceIds),
     ("local INF analysis reads package files without extraction", LocalInfAnalysisIsReadOnly),
     ("auxiliary INF files are visible as incomplete and cannot become driver previews", AuxiliaryInfIsNotDriverCandidate),
     ("driver install preview reuses consent and history while default mutation policy blocks the backend", DriverInstallPreviewAndDefaultPolicyAreSafe),
+    ("directed driver association revalidates target and separates stage failure, refusal, and restart", DirectedDriverAssociationFailsClosedAndTracksRestart),
     ("diagnostic JSON omits hardware identifiers and keeps PnP codes neutral", () => RunSync(DiagnosticJsonIsSanitizedAndNeutral)),
     ("PnP codes and missing metadata are presented without diagnosis", () => RunSync(PnpStatusRemainsNeutral)),
     ("catalog rejects duplicate stable IDs", () => RunSync(CatalogRejectsDuplicateIds)),
@@ -993,7 +999,7 @@ static async Task GenericInfDependenciesFollowApplicableInstallSections()
             "Only the selected model's applicable DDInstall CopyFiles payload should be required; unused and future section files must be ignored");
         Assert(candidate.Outcome == DriverPackageAnalysisOutcome.CompatibleAccordingToChecks && candidate.CanPrepareInstallation,
             "files mentioned only in unreferenced or non-applicable install sections must not block the selected model");
-        Assert(unusedSectionDependency.LastIncludedInfNames.Count == 0,
+        Assert(unusedSectionDependency.LastRequirements.Count == 0,
             "Include/Needs from a DDInstall variant requiring a future Windows build must not be resolved for this host");
         Assert(candidate.ApplicableInstallSectionsSummary == "InstallOld.NT",
             "The selected model should retain the applicable DDInstall section used to derive payload dependencies");
@@ -1047,9 +1053,270 @@ static async Task GenericInfAnalysisBlocksMissingSystemDependencies()
             "An applicable Include/Needs dependency absent from the current Windows image must keep the candidate blocked");
         Assert(candidate.Reasons.Any(reason => reason.Contains("systembus.inf", StringComparison.OrdinalIgnoreCase)),
             "The failure should identify the unresolved system dependency rather than an unrelated package DLL");
-        Assert(resolver.LastIncludedInfNames.SequenceEqual(["systembus.inf"], StringComparer.OrdinalIgnoreCase) &&
-               resolver.LastRequiredSections.SequenceEqual(["SystemBus.Install"], StringComparer.OrdinalIgnoreCase),
-            "Only dependencies from the selected applicable install section should be sent to the system-INF resolver");
+        Assert(resolver.LastRequirements.Count == 1 &&
+               resolver.LastRequirements[0].IncludedInfNames.SequenceEqual(["systembus.inf"], StringComparer.OrdinalIgnoreCase) &&
+               resolver.LastRequirements[0].RequiredSections.SequenceEqual(["SystemBus.Install"], StringComparer.OrdinalIgnoreCase),
+            "Include and Needs from each selected applicable install section should remain paired for recursive resolution");
+    });
+}
+
+static async Task GenericInfAnalysisBlocksUnverifiedInstallEffects()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var device = new DriverInfo("Target", "PCI\\TARGET", null, "1", null, "old.inf", true, null, 0,
+            HardwareIds: ["PCI\\VEN_1234&DEV_5678"]);
+        var platform = new DriverPackageTargetPlatform("amd64", 10, 0, 26300);
+
+        foreach (var (name, section, directive, expectedReason) in new[]
+        {
+            ("software", "Install.NT.Software", "AddSoftware=SampleSoftware,0,Software.Install", "AddSoftware"),
+            ("coinstaller", "Install.NT.CoInstallers", "AddReg=CoInstaller.Register", "CoInstallers")
+        })
+        {
+            var path = Path.Combine(directory, name + ".zip");
+            using (var stream = File.Create(path))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+            {
+                var inf = SampleDriverInf("PCI\\VEN_1234&DEV_5678") + $"\r\n[{section}]\r\n{directive}\r\n" +
+                          (name == "software" ? "[Software.Install]\r\nCopyFiles=Driver.Copy\r\n" : "[CoInstaller.Register]\r\nHKR,,CoInstallers32,0x00010000,coinstaller.dll\r\n");
+                Add("sample.inf", inf);
+                Add("sample.cat", "catalog placeholder; test verifier is injected");
+                Add("sample.sys", "test payload bytes");
+                if (name == "coinstaller") Add("coinstaller.dll", "test co-installer bytes");
+
+                void Add(string entryName, string content)
+                {
+                    using var writer = new StreamWriter(archive.CreateEntry(entryName).Open());
+                    writer.Write(content);
+                }
+            }
+
+            using var result = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+                .AnalyzeAsync(path, [device], platform);
+            var candidate = result.Candidates.Single();
+            Assert(candidate.Outcome == DriverPackageAnalysisOutcome.Incomplete && !candidate.CanPrepareInstallation,
+                $"The reachable {name} behavior is not fully modeled, so it must block installation eligibility");
+            Assert(candidate.Reasons.Any(reason => reason.Contains(expectedReason, StringComparison.OrdinalIgnoreCase)),
+                $"The incomplete result should explain the unverified {name} behavior");
+        }
+
+        var emptyDependencyPath = Path.Combine(directory, "empty-dependency.zip");
+        using (var stream = File.Create(emptyDependencyPath))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        {
+            var inf = SampleDriverInf("PCI\\VEN_1234&DEV_5678").Replace(
+                "CopyFiles=Driver.Copy", "Include=\r\nNeeds=\r\nCopyFiles=Driver.Copy", StringComparison.Ordinal);
+            foreach (var (entryName, content) in new[]
+            {
+                ("sample.inf", inf), ("sample.cat", "catalog placeholder"), ("sample.sys", "test payload bytes")
+            })
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(entryName).Open());
+                writer.Write(content);
+            }
+        }
+        using var emptyResult = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(emptyDependencyPath, [device], platform);
+        Assert(emptyResult.Candidates.Single().Outcome == DriverPackageAnalysisOutcome.Incomplete &&
+               !emptyResult.Candidates.Single().CanPrepareInstallation &&
+               emptyResult.Candidates.Single().Reasons.Any(reason => reason.Contains("vazio", StringComparison.OrdinalIgnoreCase)),
+            "Empty Include/Needs entries must not be silently discarded as if no required dependency existed");
+    });
+}
+
+static async Task SystemInfDependenciesResolveRecursivelyAndDetectCycles()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var successRoot = Path.Combine(directory, "success");
+        Directory.CreateDirectory(successRoot);
+        await File.WriteAllTextAsync(Path.Combine(successRoot, "bus.inf"), """
+            [Bus.Root]
+            Include=base.inf
+            Needs=Base.Root
+            """);
+        await File.WriteAllTextAsync(Path.Combine(successRoot, "base.inf"), """
+            [Base.Root]
+            """);
+        var resolved = new WindowsSystemInfDependencyResolver(successRoot).Verify(
+            [new(["bus.inf"], ["Bus.Root"])]);
+        Assert(resolved.Status == DriverPackageDependencyStatus.Available &&
+               resolved.Detail.Contains("2 INF", StringComparison.Ordinal) &&
+               resolved.Detail.Contains("2 seção", StringComparison.OrdinalIgnoreCase),
+            "the resolver should follow a system INF Needs section into its own Include/Needs graph");
+
+        var cycleRoot = Path.Combine(directory, "cycle");
+        Directory.CreateDirectory(cycleRoot);
+        await File.WriteAllTextAsync(Path.Combine(cycleRoot, "first.inf"), """
+            [First.Root]
+            Include=second.inf
+            Needs=Second.Root
+            """);
+        await File.WriteAllTextAsync(Path.Combine(cycleRoot, "second.inf"), """
+            [Second.Root]
+            Include=first.inf
+            Needs=First.Root
+            """);
+        var cycle = new WindowsSystemInfDependencyResolver(cycleRoot).Verify(
+            [new(["first.inf"], ["First.Root"])]);
+        Assert(cycle.Status == DriverPackageDependencyStatus.CycleDetected &&
+               cycle.Detail.Contains("Ciclo", StringComparison.OrdinalIgnoreCase),
+            "a recursive Needs graph must detect the active section cycle instead of accepting a visited node as complete");
+
+        var copyInfRoot = Path.Combine(directory, "copyinf");
+        Directory.CreateDirectory(copyInfRoot);
+        await File.WriteAllTextAsync(Path.Combine(copyInfRoot, "bus.inf"), "[Bus.Root]\r\nCopyINF=extra.inf\r\n");
+        var copyInf = new WindowsSystemInfDependencyResolver(copyInfRoot).Verify(
+            [new(["bus.inf"], ["Bus.Root"])]);
+        Assert(copyInf.Status == DriverPackageDependencyStatus.Unavailable &&
+               copyInf.Detail.Contains("CopyINF", StringComparison.OrdinalIgnoreCase),
+            "a reachable system INF CopyINF directive may stage packages outside the analyzed dependency graph and must block eligibility");
+    });
+}
+
+static async Task SystemInfDependenciesResolveDecoratedSections()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        await File.WriteAllTextAsync(Path.Combine(directory, "bus.inf"), """
+            [Bus.Install.NTamd64.10.0]
+            Include=base.inf
+            Needs=Base.Install.NTamd64.10.0
+            """);
+        await File.WriteAllTextAsync(Path.Combine(directory, "base.inf"), """
+            [Base.Install.NTamd64.10.0]
+            [Base.Install.NTamd64.10.0...99999]
+            """);
+
+        var result = new WindowsSystemInfDependencyResolver(directory).Verify(
+            [new(["bus.inf"], ["Bus.Install.NTamd64.10.0"])]);
+        Assert(result.Status == DriverPackageDependencyStatus.Available &&
+               result.Detail.Contains("2 INF", StringComparison.Ordinal) &&
+               result.Detail.Contains("2 seção", StringComparison.OrdinalIgnoreCase),
+            "an explicitly decorated Needs section must resolve by its literal selected name without selecting unrelated build decorations");
+    });
+}
+
+static async Task SystemInfDependencyResolverEnforcesLimits()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var root = Path.Combine(directory, "infs");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(Path.Combine(root, "bus.inf"), "[Bus.Root]\nInclude=base.inf\nNeeds=Base.Root\n");
+        await File.WriteAllTextAsync(Path.Combine(root, "base.inf"), "[Base.Root]\n");
+        var requirement = new DriverPackageInfDependencyRequirement(["bus.inf"], ["Bus.Root"]);
+
+        var depth = new WindowsSystemInfDependencyResolver(root, maxDepth: 1).Verify([requirement]);
+        var files = new WindowsSystemInfDependencyResolver(root, maxFiles: 1).Verify([requirement]);
+        var bytes = new WindowsSystemInfDependencyResolver(root, maxSingleFileBytes: 16).Verify([requirement]);
+        Assert(depth.Status == DriverPackageDependencyStatus.LimitExceeded &&
+               files.Status == DriverPackageDependencyStatus.LimitExceeded &&
+               bytes.Status == DriverPackageDependencyStatus.LimitExceeded,
+            "depth, file-count, and byte limits must return incomplete/blocked results rather than imply compatibility");
+    });
+}
+
+static void DriverStoreSelectionUsesUniqueBestRank()
+{
+    var requested = Path.Combine(Path.GetTempPath(), "oem42.inf");
+    var other = Path.Combine(Path.GetTempPath(), "oem43.inf");
+    var best = DriverStoreCandidateSelector.SelectUniqueBest(
+        [new(requested, 0), new(other, 0x1000)], requested);
+    var lower = DriverStoreCandidateSelector.SelectUniqueBest(
+        [new(requested, 0x1000), new(other, 0)], requested);
+    var tied = DriverStoreCandidateSelector.SelectUniqueBest(
+        [new(requested, 0), new(other, 0)], requested);
+    var absent = DriverStoreCandidateSelector.SelectUniqueBest([new(other, 0)], requested);
+    Assert(best.Status == DriverStoreCandidateSelectionStatus.Selected && best.Candidate?.InfPath == requested,
+        "the exact staged INF may be selected only when it is the unique best-ranked compatible package");
+    Assert(lower.Status == DriverStoreCandidateSelectionStatus.CandidateNotBestRank &&
+           tied.Status == DriverStoreCandidateSelectionStatus.BestRankAmbiguous &&
+           absent.Status == DriverStoreCandidateSelectionStatus.CandidateNotFound,
+        "lower rank, equal-best ambiguity, and missing staged INF must all refuse association");
+}
+
+static async Task DirectedDriverAssociationFailsClosedAndTracksRestart()
+{
+    await WithTemporaryDirectory(async directory =>
+    {
+        var zipPath = Path.Combine(directory, "directed-driver.zip");
+        CreateSampleDriverZip(zipPath);
+        const string targetId = "PCI\\VEN_1234&DEV_5678&SUBSYS_ABCD0001";
+        var device = new DriverInfo("Sample Ethernet", "PCI\\INSTANCE-1", "Current vendor", "1.2.3.4", null,
+            "old.inf", true, "Current signer", 0, HardwareIds: [targetId]);
+        using var analysis = await new LocalDriverPackageAnalyzer(new FakeDriverPackageSignatureVerifier())
+            .AnalyzeAsync(zipPath, [device], new("amd64", 10, 0, 26300));
+        var candidate = analysis.Candidates.Single();
+
+        async Task<(DriverPackageInstallationService Service, DriverPackageInstallReview Review, Guid OperationId, FakeDriverInventoryService Inventory)> Prepare(
+            string name, FakeDriverPackageInstaller installer)
+        {
+            var inventory = new FakeDriverInventoryService([device]);
+            var consent = new PlanConsentService();
+            var journal = new OperationJournalCoordinator(consent);
+            var store = new JsonOperationJournalStore(Path.Combine(directory, name));
+            var service = new DriverPackageInstallationService(inventory, installer,
+                new FakeDriverPackageSignatureVerifier(), store, consent, journal,
+                new TestEnabledDriverMutationPolicy());
+            var review = service.CreateReview(candidate, device, new(true, "x64", 26300));
+            var capture = await service.CaptureAsync(review, consequencesAccepted: true);
+            return (service, review, capture.OperationId, inventory);
+        }
+
+        var stageFailureAdapter = new FakeDriverPackageInstaller
+        {
+            StageResult = new(false, 5, false, "simulated staging access denied")
+        };
+        var stageFailure = await Prepare("stage-failure", stageFailureAdapter);
+        var failedStage = await stageFailure.Service.StageToDriverStoreAsync(stageFailure.Review, stageFailure.OperationId);
+        var afterFailedStage = await stageFailure.Service.AssociateWithTargetDeviceAsync(stageFailure.Review, stageFailure.OperationId);
+        Assert(failedStage.Status == DriverPackageInstallStepStatus.AccessDenied &&
+               afterFailedStage.Status == DriverPackageInstallStepStatus.RefusedByStateConflict &&
+               stageFailureAdapter.AssociationCalls == 0,
+            "failed staging must leave no receipt and make directed association impossible");
+
+        var removedAdapter = new FakeDriverPackageInstaller();
+        var removed = await Prepare("device-removed", removedAdapter);
+        await removed.Service.StageToDriverStoreAsync(removed.Review, removed.OperationId);
+        removed.Inventory.Drivers = Array.Empty<DriverInfo>();
+        var removedResult = await removed.Service.AssociateWithTargetDeviceAsync(removed.Review, removed.OperationId);
+        Assert(removedResult.Status == DriverPackageInstallStepStatus.RefusedByStateConflict && removedAdapter.AssociationCalls == 0,
+            "a removed target must be caught by a fresh inventory read before the native adapter is called");
+
+        var changedAdapter = new FakeDriverPackageInstaller();
+        var changed = await Prepare("identity-changed", changedAdapter);
+        await changed.Service.StageToDriverStoreAsync(changed.Review, changed.OperationId);
+        changed.Inventory.Drivers = [device with { HardwareIds = ["PCI\\VEN_9999&DEV_0001"] }];
+        var changedResult = await changed.Service.AssociateWithTargetDeviceAsync(changed.Review, changed.OperationId);
+        Assert(changedResult.Status == DriverPackageInstallStepStatus.RefusedByStateConflict && changedAdapter.AssociationCalls == 0,
+            "changed Hardware IDs must block before association; the native adapter adds a final SetupAPI identity reread");
+
+        var refusedAdapter = new FakeDriverPackageInstaller
+        {
+            AssociationResult = new(false, null, false, "simulated candidate rank conflict", Refusal: DriverPackageCommandRefusal.CandidateNotBestRank)
+        };
+        var refused = await Prepare("rank-refused", refusedAdapter);
+        await refused.Service.StageToDriverStoreAsync(refused.Review, refused.OperationId);
+        var refusedResult = await refused.Service.AssociateWithTargetDeviceAsync(refused.Review, refused.OperationId);
+        var associationRequest = refusedAdapter.LastAssociationRequest;
+        Assert(refusedResult.Status == DriverPackageInstallStepStatus.RefusedByStateConflict &&
+               associationRequest?.DeviceInstanceId == device.DeviceId &&
+               associationRequest?.ExpectedHardwareId == targetId &&
+               associationRequest?.StagedInfPath == refusedAdapter.StagedInfPath,
+            "association must pass the exact instance, expected Hardware ID, current INF, and persisted staged INF; rank refusal is recorded as conflict");
+
+        var rebootAdapter = new FakeDriverPackageInstaller
+        {
+            AssociationResult = new(true, 0, true, "simulated DiInstallDevice needs reboot")
+        };
+        var reboot = await Prepare("reboot-pending", rebootAdapter);
+        await reboot.Service.StageToDriverStoreAsync(reboot.Review, reboot.OperationId);
+        var rebootResult = await reboot.Service.AssociateWithTargetDeviceAsync(reboot.Review, reboot.OperationId);
+        Assert(rebootResult.Status == DriverPackageInstallStepStatus.DeviceAssociationPendingRestart &&
+               rebootResult.RebootMayBeRequired == true && reboot.Inventory.Drivers.Single().InfName == "old.inf",
+            "restart-required result must remain pending, avoid auto reboot, and not claim the candidate is active");
     });
 }
 
@@ -1131,9 +1398,10 @@ static async Task DriverInstallPreviewAndDefaultPolicyAreSafe()
                review.PossibleImpact.Contains("reinicialização", StringComparison.OrdinalIgnoreCase) &&
                review.RecoveryLimits.Contains("não garante recuperação", StringComparison.OrdinalIgnoreCase),
             "preview should communicate privilege, likely network impact and recovery limits");
-        Assert(review.InstallationReach.Contains("PnPUtil /install não aceita o ID da instância", StringComparison.Ordinal) &&
-               review.InstallationReach.Contains("não restringe esse comando", StringComparison.Ordinal),
-            "preview must disclose that PnPUtil /install is not restricted to the one enumerated devnode");
+        Assert(review.InstallationReach.Contains("DiInstallDevice", StringComparison.Ordinal) &&
+               review.InstallationReach.Contains("Driver Store da máquina", StringComparison.Ordinal) &&
+               review.InstallationReach.Contains("CopyINF", StringComparison.Ordinal),
+            "preview must distinguish one-devnode association from machine-wide staging and INF side effects");
         await AssertThrowsAsync<InvalidOperationException>(() => blockedService.CaptureAsync(review, consequencesAccepted: false));
         Assert((await store.LoadAllAsync()).Count == 0, "declined consent should not create a history capture");
 
@@ -1154,8 +1422,8 @@ static async Task DriverInstallPreviewAndDefaultPolicyAreSafe()
         var journalAfterStage = await store.LoadAsync(secondCapture.OperationId);
         Assert(journalAfterStage?.Events.Any(item => item.EventType == "DriverPackageStagedToDriverStore") == true,
             "stage-only outcome should be recorded in the existing operation history");
-        var associated = await enabledService.InstallOnMatchingDeviceAsync(secondReview, secondCapture.OperationId);
-        Assert(associated.Status == DriverPackageInstallStepStatus.DeviceAssociationNotVerified && installer.InstallCalls == 1,
+        var associated = await enabledService.AssociateWithTargetDeviceAsync(secondReview, secondCapture.OperationId);
+        Assert(associated.Status == DriverPackageInstallStepStatus.DeviceAssociationNotVerified && installer.AssociationCalls == 1,
             "an unchanged simulated inventory must leave device association explicitly unverified after backend success");
     });
 }
@@ -2922,15 +3190,12 @@ sealed class FakeDriverPackageSignatureVerifier(DriverPackageVerificationStatus 
 sealed class FakeSystemInfDependencyResolver(DriverPackageSystemDependencyResult result)
     : IDriverPackageSystemInfDependencyResolver
 {
-    public IReadOnlyList<string> LastIncludedInfNames { get; private set; } = Array.Empty<string>();
-    public IReadOnlyList<string> LastRequiredSections { get; private set; } = Array.Empty<string>();
+    public IReadOnlyList<DriverPackageInfDependencyRequirement> LastRequirements { get; private set; } = Array.Empty<DriverPackageInfDependencyRequirement>();
 
     public DriverPackageSystemDependencyResult Verify(
-        IReadOnlyList<string> includedInfNames,
-        IReadOnlyList<string> requiredSections)
+        IReadOnlyList<DriverPackageInfDependencyRequirement> requirements)
     {
-        LastIncludedInfNames = includedInfNames;
-        LastRequiredSections = requiredSections;
+        LastRequirements = requirements;
         return result;
     }
 }
@@ -2950,20 +3215,27 @@ sealed class FakeDriverInventoryService(IReadOnlyList<DriverInfo> drivers) : IDr
 sealed class FakeDriverPackageInstaller : IDriverPackageInstaller
 {
     public int StageCalls { get; private set; }
-    public int InstallCalls { get; private set; }
+    public int AssociationCalls { get; private set; }
+    public string StagedInfPath { get; set; } = Path.Combine(Path.GetTempPath(), "oem42.inf");
+    public DriverPackageCommandResult? StageResult { get; set; }
+    public DriverPackageCommandResult? AssociationResult { get; set; }
+    public DriverPackageAssociationRequest? LastAssociationRequest { get; private set; }
 
     public Task<DriverPackageCommandResult> StageToDriverStoreAsync(string infPath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         StageCalls++;
-        return Task.FromResult(new DriverPackageCommandResult(true, 0, null, "simulated staging success"));
+        return Task.FromResult(StageResult ?? new DriverPackageCommandResult(true, 0, false,
+            "simulated SetupCopyOEMInf staging success", StagedInfPath));
     }
 
-    public Task<DriverPackageCommandResult> InstallOnMatchingDeviceAsync(string infPath, CancellationToken cancellationToken = default)
+    public Task<DriverPackageCommandResult> AssociateWithDeviceAsync(DriverPackageAssociationRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        InstallCalls++;
-        return Task.FromResult(new DriverPackageCommandResult(true, 0, null, "simulated install command success"));
+        AssociationCalls++;
+        LastAssociationRequest = request;
+        return Task.FromResult(AssociationResult ?? new DriverPackageCommandResult(true, 0, false,
+            "simulated DiInstallDevice success"));
     }
 }
 

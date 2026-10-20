@@ -46,26 +46,30 @@ public enum DriverPackageDependencyStatus
     Available,
     Missing,
     Ambiguous,
-    Unavailable
+    Unavailable,
+    CycleDetected,
+    LimitExceeded
 }
 
 public sealed record DriverPackageSystemDependencyResult(
     DriverPackageDependencyStatus Status,
     string Detail);
 
+public sealed record DriverPackageInfDependencyRequirement(
+    IReadOnlyList<string> IncludedInfNames,
+    IReadOnlyList<string> RequiredSections);
+
 /// <summary>Read-only validation of INF files and sections supplied by the current Windows installation.</summary>
 public interface IDriverPackageSystemInfDependencyResolver
 {
     DriverPackageSystemDependencyResult Verify(
-        IReadOnlyList<string> includedInfNames,
-        IReadOnlyList<string> requiredSections);
+        IReadOnlyList<DriverPackageInfDependencyRequirement> requirements);
 }
 
 public sealed class UnavailableDriverPackageSystemInfDependencyResolver : IDriverPackageSystemInfDependencyResolver
 {
     public DriverPackageSystemDependencyResult Verify(
-        IReadOnlyList<string> includedInfNames,
-        IReadOnlyList<string> requiredSections) => new(
+        IReadOnlyList<DriverPackageInfDependencyRequirement> requirements) => new(
             DriverPackageDependencyStatus.Unavailable,
             "O analisador não tem um resolvedor para validar os INF e seções do Windows referenciados pelo pacote.");
 }
@@ -200,6 +204,7 @@ public enum DriverPackageInstallStepStatus
     AccessDenied,
     Failed,
     DriverStoreStagedNotAssociated,
+    DeviceAssociationPendingRestart,
     DeviceAssociationNotVerified,
     DeviceAssociationVerified
 }
@@ -214,12 +219,78 @@ public sealed record DriverPackageCommandResult(
     bool Succeeded,
     int? ExitCode,
     bool? RebootMayBeRequired,
+    string Detail,
+    string? StagedInfPath = null,
+    DriverPackageCommandRefusal? Refusal = null);
+
+public enum DriverPackageCommandRefusal
+{
+    DeviceIdentityChanged,
+    DeviceNotPresent,
+    CandidateNotBestRank,
+    CandidateRankAmbiguous,
+    CandidateNotFoundInDriverStore
+}
+
+public sealed record DriverPackageAssociationRequest(
+    string DeviceInstanceId,
+    string ExpectedHardwareId,
+    string ExpectedCurrentInfName,
+    string StagedInfPath);
+
+public sealed record DriverStoreDriverCandidate(string InfPath, uint Rank);
+
+public enum DriverStoreCandidateSelectionStatus
+{
+    Selected,
+    CandidateNotFound,
+    CandidateNotBestRank,
+    BestRankAmbiguous
+}
+
+public sealed record DriverStoreCandidateSelectionResult(
+    DriverStoreCandidateSelectionStatus Status,
+    DriverStoreDriverCandidate? Candidate,
+    uint? BestRank,
     string Detail);
+
+public static class DriverStoreCandidateSelector
+{
+    public static DriverStoreCandidateSelectionResult SelectUniqueBest(
+        IReadOnlyList<DriverStoreDriverCandidate> compatibleDrivers,
+        string requestedInfPath)
+    {
+        ArgumentNullException.ThrowIfNull(compatibleDrivers);
+        if (string.IsNullOrWhiteSpace(requestedInfPath))
+            return new(DriverStoreCandidateSelectionStatus.CandidateNotFound, null, null, "O INF staged não foi identificado.");
+
+        var matches = compatibleDrivers.Where(candidate => string.Equals(
+            Path.GetFullPath(candidate.InfPath), Path.GetFullPath(requestedInfPath), StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (matches.Length != 1)
+            return new(DriverStoreCandidateSelectionStatus.CandidateNotFound, null, null,
+                matches.Length == 0 ? "O INF staged não aparece na lista de drivers compatíveis do devnode." : "O INF staged aparece mais de uma vez na lista compatível.");
+
+        if (compatibleDrivers.Count == 0)
+            return new(DriverStoreCandidateSelectionStatus.CandidateNotFound, null, null, "Nenhum driver compatível foi enumerado.");
+        var bestRank = compatibleDrivers.Min(candidate => candidate.Rank);
+        var best = compatibleDrivers.Where(candidate => candidate.Rank == bestRank).ToArray();
+        if (matches[0].Rank != bestRank)
+            return new(DriverStoreCandidateSelectionStatus.CandidateNotBestRank, null, bestRank,
+                $"O candidato solicitado tem rank {matches[0].Rank}, inferior ao melhor rank {bestRank}; a associação não será forçada.");
+        if (best.Length != 1)
+            return new(DriverStoreCandidateSelectionStatus.BestRankAmbiguous, null, bestRank,
+                $"Há {best.Length} candidatos empatados no melhor rank {bestRank}; a escolha foi recusada.");
+        return new(DriverStoreCandidateSelectionStatus.Selected, matches[0], bestRank,
+            $"O candidato solicitado é o único driver com melhor rank {bestRank} na lista compatível enumerada.");
+    }
+}
 
 public interface IDriverPackageInstaller
 {
     Task<DriverPackageCommandResult> StageToDriverStoreAsync(string infPath, CancellationToken cancellationToken = default);
-    Task<DriverPackageCommandResult> InstallOnMatchingDeviceAsync(string infPath, CancellationToken cancellationToken = default);
+    Task<DriverPackageCommandResult> AssociateWithDeviceAsync(
+        DriverPackageAssociationRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IDriverPackageMutationPolicy

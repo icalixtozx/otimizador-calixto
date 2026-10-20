@@ -229,7 +229,7 @@ Este checklist não valida compatibilidade em outro computador. Erros de serviç
 
 ## Publicação autocontida e abertura pelo atalho — 2026-10-19
 
-- Ambiente: raiz Git `C:\Users\Computador\Documents\meu otimizador`, branch `main`, commit de origem `a5d2db890fc5a4f99373fecf16a5f31b4899c6d0`. SDK explicitamente usado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; RID `win-x64`. Compilador Inno Setup 7.1.0.
+- Ambiente: raiz Git `<raiz do repositório>`, branch `main`, commit de origem `a5d2db890fc5a4f99373fecf16a5f31b4899c6d0`. SDK explicitamente usado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; RID `win-x64`. Compilador Inno Setup 7.1.0.
 - `dotnet publish` Release com `--runtime win-x64 --self-contained true` concluiu com sucesso. A publicação inclui os runtimes .NET 10.0.13 e WPF; o executável foi aberto diretamente da pasta `artifacts/preview-v0.6.0-experimental-selfcontained-20261019/CalixtoOptimizer`, sem usar o `bin` framework-dependent. Uma janela `Calixto Optimizer` apareceu e o processo respondeu. SHA-256 do executável publicado: `B0C3A45341764118569C08475AE91687E13946EE6DCA250D7EDC7A32AA633E9D`.
 - O script único `packaging/CalixtoOptimizer-Preview-20261019.iss` compilou com sucesso no Inno Setup. O instalador novo e isolado foi instalado com código de saída 0 em `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019`. O hash do executável instalado corresponde ao publicado.
 - O atalho do Menu Iniciar foi inspecionado: destino e diretório de trabalho apontam para essa instalação exclusiva. A inicialização feita pelo atalho produziu uma janela responsiva com título `Calixto Optimizer`; ela foi deixada aberta para a inspeção manual.
@@ -238,7 +238,7 @@ Este checklist não valida compatibilidade em outro computador. Erros de serviç
 
 ## Identificação Windows 10/11 — 2026-10-19
 
-- Raiz: `C:\Users\Computador\Documents\meu otimizador`; SDK explícito `C:\Users\Computador\AppData\Local\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402 (único SDK em `--list-sdks`); `dotnet --info` reportou MSBuild 18.9.15, runtime 10.0.13; Windows `win-x64`.
+- Raiz: `<raiz do repositório>`; SDK explícito `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402 (único SDK em `--list-sdks`); `dotnet --info` reportou MSBuild 18.9.15, runtime 10.0.13; Windows `win-x64`.
 - Build completo Release: `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: sucesso, 0 avisos e 0 erros. Harness `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **91/91** checks aprovados, incluindo seis testes de identidade.
 - Smoke de integração real chamou o `WmiComputerInventoryService` compilado por runner temporário fora do repositório, sem setters. Resultado: `WindowsName=Windows 11`, `Edition=Professional`, `Version=26H2`, `Build=26300.9711`, motherboard `ASUSTeK COMPUTER INC. PRIME B550M-A AC`; avisos sobre `ProductName` divergente e canal Insider não consultado. O Registro isolado reportou `ProductName=Windows 10 Pro`, `EditionID=Professional`, `DisplayVersion=26H2`, `CurrentBuildNumber=26300`, `UBR=9711`; CIM reportou caption `Microsoft Windows 11 Pro`, versão `10.0.26300`, build `26300`, produto cliente e `OperatingSystemSKU=48` (Professional).
 - Confirmação independente somente leitura foi feita com `Get-CimInstance Win32_OperatingSystem` e leitura de `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. A documentação Microsoft lista `26300.9711` como Windows 11 26H2 GA em 13/10/2026. `BuildLabEx` apresentou base `26100.1...ge_release`, que não foi usada como build atual nem como confirmação de canal.
@@ -280,7 +280,7 @@ Este resultado substitui a conclusão Wi-Fi de “arquivos ausentes” registrad
 
 ### Build e harness
 
-- Raiz: `C:\Users\Computador\Documents\meu otimizador`; SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`.
+- Raiz: `<raiz do repositório>`; SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`.
 - `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: sucesso, 0 avisos/0 erros.
 - `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **100/100** verificações. Casos do pacote usam verificadores e instaladores falsos: ZIP comum/root-level, traversal, limite de tamanho, `Autorun.inf`, INF direto, Hardware ID exato, Compatible ID, conflito/ambiguidade, incompatibilidade, payload ausente, preview, captura e política padrão bloqueada. A prova de staging/associação no harness não chama PnPUtil.
 
@@ -319,3 +319,32 @@ Processos carregou a lista local e relatou acesso negado/terminado por algumas e
 - EXE: `artifacts/installer-preview-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-setup.exe`; SHA-256 `ADE4D74A0C7E75E86BE70C9E722FCE758D0C01EABC73CE99911577DCF95966DD`.
 
 Limites conhecidos: Setup sem assinatura digital própria; sem teste em outro PC, instalação limpa/desinstalação do R2 ou validação funcional de driver; ações reais de energia, Registro, políticas e prioridade permanecem bloqueadas pela política do aplicativo.
+
+## Associação direcionada e dependências INF — 2026-10-20
+
+### Verificações simuladas automatizadas
+
+O harness Core usa INF temporários, sistema INF em pasta descartável, inventário simulado e `IDriverPackageInstaller` falso. A cobertura inclui Include/Needs recursivo, nome de seção decorado literal, ciclos, dependência ausente, `CopyINF` alcançável, entradas vazias, `AddSoftware`, registro de co-installer e limites; seleção única de melhor rank, empate/ausência/rank inferior; remoção do dispositivo, mudança de identidade, staging recusado, associação recusada e pedido de reinício. O caso de reinício permanece pendente e não afirma que o INF novo está ativo. Esses testes não chamam `SetupCopyOEMInfW`, `DiInstallDevice`, PnPUtil, co-installers nem alteram drivers.
+
+Resultado desta execução com SDK 10.0.402: a tentativa normal de build falhou após retries porque o apphost Release estava em uso pelo PID 24540, preservado para inspeção manual. `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore -p:UseAppHost=false` compilou toda a solução com 0 erros e 1 aviso MSB3061 (não conseguiu excluir o apphost em uso). A DLL do harness foi executada diretamente com `dotnet.exe`: **109/109 checks simulados aprovados**.
+
+O probe real dos ZIPs ASUS foi repetido em modo somente leitura após a mudança. Inventário WMI: `Available`, 189 itens, zero avisos; Windows 11 Professional, build 26300.9711, x64. Ethernet `rt68cx21x64.inf` e Wi-Fi `netrtwlane.inf` ainda retornam “Compatível segundo as verificações realizadas” com uma correspondência exata e prévia elegível; Include/Needs do Windows foram percorridos recursivamente. Não foram chamados SetupCopyOEMInf, DiInstallDevice, PnPUtil ou instaladores OEM.
+
+### Build não equivale a integração real
+
+O build Release compila WPF, P/Invokes e os contratos entre Core/Windows. Não valida execução das APIs nativas, desenho da UI, permissões elevadas, Driver Store ou funcionamento de dispositivo. A aplicação mantém `BlockedDriverPackageMutationPolicy`; a compilação não libera staging nem associação.
+
+### Checklist manual visual pendente
+
+O Windows confirmou PID **24540** em `<raiz do repositório>\src\Optimizer.App\bin\Release\net10.0-windows\Optimizer.App.exe`. `sky.list_apps` retornou uma janela `Optimizer.App.exe`, mas a identidade informada pela ferramenta era `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`. Parei antes de `get_window`, captura ou clique e não contornei a checagem. A validação visual fica pendente; o executável Release permanece aberto para checklist manual. Use este checklist sem clicar em staging/associação:
+
+- [ ] Drivers: identificar candidato/INF e motivos; conferir `Include`/`Needs`, resultado parcial/incompleto e aviso de que staging afeta o Driver Store da máquina.
+- [ ] Prévia: confirmar devnode, driver atual, pacote escolhido, rank/recusa, consequências e limites de recuperação. A associação é direcionada a um devnode, mas efeitos INF podem ultrapassar o alvo.
+- [ ] Histórico: distinguir revisão/captura, staging, associação, reinício pendente, driver ativo lido e associação verificada. Consentimento/captura não são instalação.
+- [ ] As demais páginas do checklist manual consolidado já existente continuam pendentes se não forem observadas nesta compilação; não provocar sondagem de Rede nem aplicar ajustes de Energia/Registro/Processos.
+
+## Restrições da lista PnP nesta etapa
+
+O adaptador define `DI_FLAGSEX_ALLOWEXCLUDEDDRVS` para que `SetupDiBuildDriverInfoList` enumere a lista compatível PnP. A flag inclui drivers `ExcludeFromSelect` na lista, e a documentação Microsoft alerta que dispositivos PnP normalmente têm essa condição e não devem ser instalados manualmente. Nenhuma chamada de staging ou associação foi executada; compatibilidade/rank selecionado em operação nativa continuam sem validação.
+
+Nenhum staging, associação, instalação, remoção ou reinício foi executado nesta etapa. Nenhum ZIP/instalador foi gerado. A validação funcional dos drivers ASUS, recuperação/desinstalação e teste em outro PC continuam pendentes.

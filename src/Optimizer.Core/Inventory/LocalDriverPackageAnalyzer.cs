@@ -670,8 +670,7 @@ public sealed class LocalDriverPackageAnalyzer
             var errors = new List<string>();
             var unsupported = false;
             var copyFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var includes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var needs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var dependencyRequirements = new List<DriverPackageInfDependencyRequirement>();
             var installSections = matches.SelectMany(match => match.ApplicableInstallSections ?? Array.Empty<string>())
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             if (matches.Any(match => match.ApplicableInstallSections is not { Count: 1 }))
@@ -681,69 +680,156 @@ public sealed class LocalDriverPackageAnalyzer
             }
 
             var fileListSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
+            var queuedSections = new Queue<string>();
+            var visitedInstallSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var installSection in installSections)
             {
-                var applicableSections = new[] { "", ".Services", ".HW", ".CoInstallers", ".Interfaces", ".Software", ".Wdf" }
+                var applicableSections = new[]
+                    { "", ".Services", ".HW", ".CoInstallers", ".Interfaces", ".Software", ".Wdf", ".Filters", ".Components", ".Events" }
                     .Select(suffix => installSection + suffix)
                     .Where(_sections.ContainsKey)
                     .ToArray();
-                foreach (var sectionName in applicableSections)
-                {
-                    foreach (var line in _sections[sectionName])
-                    {
-                        var pair = ParseKeyValue(line);
-                        if (pair is null) continue;
-                        var key = pair.Value.Key.Trim();
-                        var values = SplitCsv(pair.Value.Value).Select(Unquote).Select(value => value.Trim()).ToArray();
-                        if (key.Equals("CopyFiles", StringComparison.OrdinalIgnoreCase))
-                        {
-                            foreach (var value in values.Where(value => value.Length > 0))
-                            {
-                                if (value.StartsWith('@'))
-                                    copyFileNames.Add(value[1..]);
-                                else if (_sections.TryGetValue(value, out var fileLines))
-                                {
-                                    fileListSections.Add(value);
-                                    foreach (var fileLine in fileLines)
-                                    {
-                                        var fields = SplitCsv(fileLine).Select(Unquote).Select(item => item.Trim()).ToArray();
-                                        var sourceName = fields.Length > 1 && fields[1].Length > 0 ? fields[1] : fields[0];
-                                        if (sourceName.Length == 0 || sourceName.Contains('%'))
-                                        {
-                                            errors.Add($"A lista de CopyFiles [{value}] contém nome de arquivo parametrizado ou vazio.");
-                                            unsupported = true;
-                                            continue;
-                                        }
-                                        copyFileNames.Add(sourceName);
-                                    }
-                                }
-                                else
-                                {
-                                    errors.Add($"A diretiva CopyFiles referencia uma seção ausente ou não resolvida: {value}.");
-                                    unsupported = true;
-                                }
-                            }
-                        }
-                        else if (key.Equals("Include", StringComparison.OrdinalIgnoreCase))
-                            foreach (var value in values.Where(value => value.Length > 0)) includes.Add(value);
-                        else if (key.Equals("Needs", StringComparison.OrdinalIgnoreCase))
-                            foreach (var value in values.Where(value => value.Length > 0)) needs.Add(value);
-                    }
-                }
+                foreach (var sectionName in applicableSections) queuedSections.Enqueue(sectionName);
             }
 
-            if (needs.Count > 0 && includes.Count == 0)
+            while (queuedSections.Count > 0)
             {
-                errors.Add("Há Needs sem Include correspondente nas seções de instalação aplicáveis; a dependência não pôde ser resolvida.");
-                unsupported = true;
+                var sectionName = queuedSections.Dequeue();
+                if (!visitedInstallSections.Add(sectionName)) continue;
+                if (visitedInstallSections.Count > 128)
+                {
+                    errors.Add("As seções de instalação alcançáveis excedem o limite de análise de 128; a elegibilidade foi bloqueada.");
+                    unsupported = true;
+                    break;
+                }
+                var sectionIncludes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var sectionNeeds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var line in _sections[sectionName])
+                {
+                    var pair = ParseKeyValue(line);
+                    if (pair is null) continue;
+                    var key = pair.Value.Key.Trim();
+                    var values = SplitCsv(pair.Value.Value).Select(Unquote).Select(value => value.Trim()).ToArray();
+                    if (key.Equals("CopyFiles", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var value in values.Where(value => value.Length > 0))
+                        {
+                            if (value.StartsWith('@'))
+                                copyFileNames.Add(value[1..]);
+                            else if (_sections.TryGetValue(value, out var fileLines))
+                            {
+                                fileListSections.Add(value);
+                                foreach (var fileLine in fileLines)
+                                {
+                                    var fields = SplitCsv(fileLine).Select(Unquote).Select(item => item.Trim()).ToArray();
+                                    var sourceName = fields.Length > 1 && fields[1].Length > 0 ? fields[1] : fields[0];
+                                    if (sourceName.Length == 0 || sourceName.Contains('%'))
+                                    {
+                                        errors.Add($"A lista de CopyFiles [{value}] contém nome de arquivo parametrizado ou vazio.");
+                                        unsupported = true;
+                                        continue;
+                                    }
+                                    copyFileNames.Add(sourceName);
+                                }
+                            }
+                            else
+                            {
+                                errors.Add($"A diretiva CopyFiles referencia uma seção ausente ou não resolvida: {value}.");
+                                unsupported = true;
+                            }
+                        }
+                    }
+                    else if (key.Equals("ServiceBinary", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var binary = values.FirstOrDefault();
+                        if (string.IsNullOrWhiteSpace(binary))
+                        {
+                            errors.Add($"ServiceBinary em [{sectionName}] está vazio ou não pôde ser resolvido.");
+                            unsupported = true;
+                        }
+                        else if (binary.Contains('%') && !binary.StartsWith("%12%\\", StringComparison.OrdinalIgnoreCase) &&
+                                 !binary.StartsWith("%13%\\", StringComparison.OrdinalIgnoreCase))
+                        {
+                            errors.Add($"ServiceBinary em [{sectionName}] usa uma variável de destino não suportada.");
+                            unsupported = true;
+                        }
+                        else
+                        {
+                            var binaryName = Path.GetFileName(binary.Replace("%12%\\", "", StringComparison.OrdinalIgnoreCase)
+                                .Replace("%13%\\", "", StringComparison.OrdinalIgnoreCase));
+                            if (binaryName.Length == 0 || binaryName.Contains('%'))
+                            {
+                                errors.Add($"ServiceBinary em [{sectionName}] não identifica um arquivo simples do pacote.");
+                                unsupported = true;
+                            }
+                            else copyFileNames.Add(binaryName);
+                        }
+                    }
+                    else if (key.Equals("Include", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (values.Length == 0 || values.Any(value => value.Length == 0))
+                        {
+                            errors.Add($"Include em [{sectionName}] está vazio ou contém uma entrada vazia; a dependência não pôde ser verificada.");
+                            unsupported = true;
+                        }
+                        foreach (var value in values.Where(value => value.Length > 0)) sectionIncludes.Add(value);
+                    }
+                    else if (key.Equals("Needs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (values.Length == 0 || values.Any(value => value.Length == 0))
+                        {
+                            errors.Add($"Needs em [{sectionName}] está vazio ou contém uma entrada vazia; a dependência não pôde ser verificada.");
+                            unsupported = true;
+                        }
+                        foreach (var value in values.Where(value => value.Length > 0)) sectionNeeds.Add(value);
+                    }
+                    else if (key.Equals("CopyINF", StringComparison.OrdinalIgnoreCase))
+                    {
+                        errors.Add($"CopyINF em [{sectionName}] pode stagear pacotes adicionais e não é validado nesta análise.");
+                        unsupported = true;
+                    }
+                    else if (key.Equals("AddService", StringComparison.OrdinalIgnoreCase))
+                    {
+                        EnqueueReferencedSection(values, 2, "AddService", sectionName, queuedSections, errors, ref unsupported);
+                        EnqueueReferencedSection(values, 3, "AddService EventLog", sectionName, queuedSections, errors, ref unsupported, optional: true);
+                    }
+                    else if (key.Equals("AddInterface", StringComparison.OrdinalIgnoreCase) ||
+                             key.Equals("AddComponent", StringComparison.OrdinalIgnoreCase) ||
+                             key.Equals("AddFilter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        EnqueueReferencedSection(values, 2, key, sectionName, queuedSections, errors, ref unsupported);
+                    }
+                    else if (key.Equals("AddSoftware", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // AddSoftware queues a separate software installation after device setup;
+                        // its execution/effects are outside this device-driver package analysis.
+                        errors.Add($"AddSoftware em [{sectionName}] agenda uma instalação separada que não é validada por este analisador.");
+                        unsupported = true;
+                        EnqueueReferencedSection(values, 2, key, sectionName, queuedSections, errors, ref unsupported);
+                    }
+                    else if (key.Equals("AddReg", StringComparison.OrdinalIgnoreCase) &&
+                             sectionName.EndsWith(".CoInstallers", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Co-installer registration can name DLLs that SetupAPI will load later.
+                        errors.Add($"AddReg em seção CoInstallers [{sectionName}] pode registrar co-installers cujo carregamento e efeitos não são verificados.");
+                        unsupported = true;
+                    }
+                }
+                if (sectionNeeds.Count > 0 && sectionIncludes.Count == 0)
+                {
+                    errors.Add($"Há Needs sem Include correspondente na seção aplicável [{sectionName}]; a dependência não pôde ser resolvida.");
+                    unsupported = true;
+                }
+                if (sectionIncludes.Count > 0)
+                    dependencyRequirements.Add(new(
+                        Array.AsReadOnly(sectionIncludes.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()),
+                        Array.AsReadOnly(sectionNeeds.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray())));
             }
+
             DriverPackageSystemDependencyResult? systemResolution = null;
-            if (includes.Count > 0)
+            if (dependencyRequirements.Count > 0)
             {
-                systemResolution = systemInfResolver.Verify(
-                    Array.AsReadOnly(includes.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()),
-                    Array.AsReadOnly(needs.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()));
+                systemResolution = systemInfResolver.Verify(Array.AsReadOnly(dependencyRequirements.ToArray()));
                 if (systemResolution.Status != DriverPackageDependencyStatus.Available)
                 {
                     errors.Add($"Dependência de INF do Windows não confirmada ({systemResolution.Status}): {systemResolution.Detail}");
@@ -751,9 +837,11 @@ public sealed class LocalDriverPackageAnalyzer
                 }
             }
 
-            var sourceDescription = includes.Count == 0
+            var sourceDescription = dependencyRequirements.Count == 0
                 ? "Nenhuma dependência Include/Needs do Windows foi declarada nas seções selecionadas."
-                : $"Include: {string.Join(", ", includes)}; Needs: {string.Join(", ", needs)}. {systemResolution?.Detail ?? "Dependência não verificada."}";
+                : $"Include/Needs selecionados: {string.Join("; ", dependencyRequirements.Select(requirement =>
+                    $"Include={string.Join(",", requirement.IncludedInfNames)} Needs={string.Join(",", requirement.RequiredSections)}"))}. " +
+                  (systemResolution?.Detail ?? "Dependência não verificada.");
 
             if (copyFileNames.Count == 0)
                 return new(Array.Empty<string>(), errors.Count == 0 ? "As seções aplicáveis não declaram CopyFiles; o conjunto de arquivos do pacote não pôde ser validado por este fluxo." : string.Join(" ", errors), sourceDescription, true);
@@ -791,6 +879,33 @@ public sealed class LocalDriverPackageAnalyzer
             var detail = $"DDInstall aplicável: {string.Join(", ", installSections)}. Listas CopyFiles selecionadas: {string.Join(", ", fileListSections)}. Payload alcançável: {string.Join(", ", copyFileNames)}. {sourceDescription}";
             return new(Array.AsReadOnly(copyFileNames.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray()),
                 errors.Count == 0 ? null : string.Join(" ", errors), detail, unsupported);
+        }
+
+        private void EnqueueReferencedSection(
+            IReadOnlyList<string> values,
+            int argumentIndex,
+            string directive,
+            string sourceSection,
+            Queue<string> queue,
+            List<string> errors,
+            ref bool unsupported,
+            bool optional = false)
+        {
+            if (argumentIndex >= values.Count || values[argumentIndex].Length == 0)
+            {
+                if (optional) return;
+                errors.Add($"A diretiva {directive} em [{sourceSection}] não identifica sua seção auxiliar.");
+                unsupported = true;
+                return;
+            }
+            var referenced = values[argumentIndex];
+            if (referenced.Contains('%') || !_sections.ContainsKey(referenced))
+            {
+                errors.Add($"A diretiva {directive} em [{sourceSection}] referencia seção parametrizada ou ausente [{referenced}].");
+                unsupported = true;
+                return;
+            }
+            queue.Enqueue(referenced);
         }
 
         public ModelMatchAnalysis FindDeviceMatches(
