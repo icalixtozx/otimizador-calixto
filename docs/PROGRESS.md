@@ -570,3 +570,24 @@ Esta matriz substitui as classificações anteriores resumidas por fase. “Visu
 - Build completo Release com `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402, no diretório `%USERPROFILE%\Downloads\CalixtoOptimizer` (Windows 10.0.26300, RID `win-x64`): sucesso, 0 avisos e 0 erros. Harness `Optimizer.Core.Tests` Release: **85/85** verificações passaram. Esses resultados não substituem inspeção visual nem tornam testes simulados em validações reais.
 - Não houve captura nova, sondagem ativa, leitura de configuração nesta etapa, chamada de setter, reinício de Explorer, instalação de driver ou mudança de energia, Registro, política, processo ou rede.
 - Próxima menor entrega prevista: executar **uma sessão manual de validação visual das quatro páginas**, seguindo o checklist consolidado em `docs/TESTING.md`. É menor e fecha a integração já existente sem abrir outro módulo. Critérios: navegar e voltar sem tela vazia; observar carregamento e mensagem de erro/estado; conferir seleção, consequência e diferença entre leitura/captura; reabrir histórico para confirmar persistência; não aplicar/reverter energia, prioridade ou Registro; classificar cada módulo como validado somente com evidência visual. Esta entrega não foi iniciada.
+
+## 24. Publicação autocontida e inicialização pelo atalho — 2026-10-19
+
+Continuação do commit `a5d2db890fc5a4f99373fecf16a5f31b4899c6d0`, na raiz oficial `%USERPROFILE%\Documents\meu otimizador`. O projeto não foi movido nesta etapa.
+
+### Ambiente e publicação atual
+
+- Raiz Git confirmada: `%USERPROFILE%\Documents\meu otimizador`; branch `main`; commit de origem `a5d2db890fc5a4f99373fecf16a5f31b4899c6d0`; árvore limpa antes do trabalho.
+- SDK disponível e chamado explicitamente: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, SDK `10.0.402`. Inno Setup `7.1.0` disponível em `%LOCALAPPDATA%\Programs\Inno Setup 7\ISCC.exe`.
+- Publicação atual produzida de `src/Optimizer.App/Optimizer.App.csproj`, Release, `win-x64`, `--self-contained true`, em `artifacts/preview-v0.6.0-experimental-selfcontained-20261019/CalixtoOptimizer`. Contém 405 arquivos, inclusive `coreclr.dll`, `hostfxr.dll`, `hostpolicy.dll`, e declara `Microsoft.NETCore.App` e `Microsoft.WindowsDesktop.App` versão `10.0.13` em `includedFrameworks`.
+- Executável autocontido: `artifacts/preview-v0.6.0-experimental-selfcontained-20261019/CalixtoOptimizer/Optimizer.App.exe`; SHA-256 `B0C3A45341764118569C08475AE91687E13946EE6DCA250D7EDC7A32AA633E9D`.
+- Foi iniciado o executável dessa publicação (não o executável framework-dependent em `bin`). O processo mostrou janela principal com título `Calixto Optimizer`, handle de janela não nulo e `Responding=True`. O erro de runtime ausente não apareceu. A primeira janela de preview foi fechada normalmente antes do teste do instalador.
+
+### Instalador único de validação e teste do atalho
+
+- Adicionado `packaging/CalixtoOptimizer-Preview-20261019.iss`. Usa identidade Inno, pasta de instalação, nome de atalho e caminho de artefato exclusivos; inclui recursivamente a mesma publicação autocontida. Não sobrescreve nem substitui os instaladores anteriores e não cria ação de lançamento automático durante o setup.
+- `ISCC.exe` 7.1.0 compilou o script com sucesso; saída do compilador “Successful compile”, código 0. Instalador: `artifacts/installer-preview-20261019/CalixtoOptimizer-0.6.0-experimental-preview-20261019-win-x64-setup.exe`, 46.782.097 bytes; SHA-256 `B559EFD19FE4C84928D938E9BC39B9F211F2E9FF7896A8035647A09BDAA31263`.
+- Instalação autorizada executada sem interface do setup (código 0), isolada em `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019`. Foram encontrados 407 arquivos instalados, payload/runtimes presentes e o hash do `Optimizer.App.exe` instalado coincide com o da publicação. O setup cria o registro comum de desinstalação do próprio app e o atalho do Menu Iniciar; isso não altera preferências de otimização.
+- O `.lnk` foi lido e seu `TargetPath` e `WorkingDirectory` coincidiram exatamente com a pasta exclusiva da instalação. O aplicativo foi iniciado pelo próprio atalho; o processo apontou para o executável instalado, exibiu janela principal `Calixto Optimizer` e permaneceu respondendo. Essa janela instalada está **deixada aberta** para a inspeção manual do usuário.
+- Resultado específico: o erro de runtime foi resolvido para a publicação autocontida e para o atalho do pacote recém-instalado. Isso confirma inicialização; não garante ausência de outros defeitos nas páginas. Nenhuma página foi operada ou inspecionada visualmente; não houve controle de mouse/teclado. Desinstalação não foi autorizada nem executada.
+- Não houve aplicação de otimizações, setters de energia, escrita em preferências do Registro, tráfego de rede, mudança de prioridade ou instalação de drivers. Nenhuma Release foi publicada. O artefato é um preview experimental, separado e não assinado; não é uma nova versão de distribuição estável.
