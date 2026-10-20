@@ -20,6 +20,12 @@ if (args.Length == 1 && args[0] == "--windows-registry-integration")
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("Windows 11 identity prefers matching CIM and build over stale ProductName", () => RunSync(Windows11IdentityUsesCimAndBuild)),
+    ("Windows 10 identity uses caption, NT version, and build", () => RunSync(Windows10IdentityUsesBuild)),
+    ("Windows identity marks conflicting caption and build as ambiguous", () => RunSync(WindowsIdentityMarksConflictingSources)),
+    ("Windows identity marks incompatible client version or product type as ambiguous", () => RunSync(WindowsIdentityMarksConflictingPlatformFacts)),
+    ("Windows identity reports inference and does not misclassify a server", () => RunSync(WindowsIdentityReportsInferenceAndPreservesServer)),
+    ("Windows identity prefers live CIM build when registry build differs", () => RunSync(WindowsIdentityPrefersCimBuild)),
     ("search is case-insensitive and excludes unrelated rows", () => RunSync(SearchFiltersRows)),
     ("signature filter keeps unknown separate", () => RunSync(SignatureFilterKeepsUnknownSeparate)),
     ("CSV escapes fields and omits device identifiers", () => RunSync(CsvIsSanitized)),
@@ -129,6 +135,100 @@ static Task RunSync(Action action)
 {
     action();
     return Task.CompletedTask;
+}
+
+static void Windows11IdentityUsesCimAndBuild()
+{
+    var resolved = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.26300", 26300, 1, 48,
+        "Windows 10 Pro", "Professional", "26H2", 26300, 9711));
+
+    Assert(resolved.Name == "Windows 11", "CIM caption and build should identify Windows 11");
+    Assert(resolved.Edition == "Professional" && resolved.Version == "26H2", "edition and display version should be retained");
+    Assert(resolved.Build == "26300.9711", "matching registry UBR should complete the CIM build");
+    Assert(resolved.Warnings.Any(warning => warning.Contains("ProductName no Registro informa Windows 10", StringComparison.Ordinal)),
+        "stale registry product label should be shown as a source discrepancy");
+    Assert(resolved.Warnings.Any(warning => warning.Contains("não confirma a inscrição", StringComparison.OrdinalIgnoreCase)),
+        "Insider enrollment/channel must remain explicitly unknown");
+
+    var skuOnlyEdition = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.26300", 26300, 1, 48,
+        "Windows 10 Pro", null, "26H2", 26300, 9711));
+    Assert(skuOnlyEdition.Edition == "Professional", "documented CIM SKU 48 should identify Professional when EditionID is absent");
+
+    var editionConflict = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.26300", 26300, 1, 48,
+        "Windows 11 Pro", "Enterprise", "26H2", 26300, 9711));
+    Assert(editionConflict.Edition is null && editionConflict.Warnings.Any(warning => warning.Contains("A edição diverge", StringComparison.Ordinal)),
+        "conflicting CIM caption, SKU, and registry edition should remain unconfirmed");
+}
+
+static void Windows10IdentityUsesBuild()
+{
+    var resolved = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 10 Pro", "10.0.19045", 19045, 1, 48,
+        "Windows 10 Pro", "Professional", "22H2", 19045, 6466));
+
+    Assert(resolved.Name == "Windows 10", "matching caption and pre-22000 workstation build should identify Windows 10");
+    Assert(!resolved.Warnings.Any(warning => warning.Contains("diverg", StringComparison.OrdinalIgnoreCase)),
+        "matching Windows 10 sources should not warn about identity divergence");
+}
+
+static void WindowsIdentityMarksConflictingSources()
+{
+    var resolved = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.19045", 19045, 1, 48,
+        "Windows 11 Pro", "Professional", "22H2", 19045, 6466));
+
+    Assert(resolved.Name == "Windows (identificação divergente)", "incompatible caption and build must not produce a confident Windows 10/11 label");
+    Assert(resolved.Warnings.Any(warning => warning.Contains("Caption CIM identifica Windows 11", StringComparison.Ordinal)),
+        "the conflict warning should identify the source values");
+}
+
+static void WindowsIdentityMarksConflictingPlatformFacts()
+{
+    var incompatibleVersion = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "6.3.9600", 19045, 1, 48,
+        "Windows 11 Pro", "Professional", "26H2", 19045, 6466));
+    Assert(incompatibleVersion.Name == "Windows (identificação divergente)",
+        "a Windows 11 caption should not override an incompatible NT version");
+
+    var incompatibleType = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.26300", 26300, 3, 48,
+        "Windows 11 Pro", "Professional", "26H2", 26300, 9711));
+    Assert(incompatibleType.Name == "Windows (identificação divergente)",
+        "a client Windows caption should not override a known server product type");
+}
+
+static void WindowsIdentityReportsInferenceAndPreservesServer()
+{
+    var inferred = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        null, "10.0.26300", 26300, 1, 48, null, "Professional", "26H2", 26300, 9711));
+    Assert(inferred.Name == "Windows 11", "a recognized client build should permit a labeled inference when CIM caption is absent");
+    Assert(inferred.Warnings.Any(warning => warning.Contains("inferido", StringComparison.OrdinalIgnoreCase)),
+        "build-only identification should disclose that it is inferred");
+
+    var server = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows Server 2022 Standard", "10.0.20348", 20348, 3, 7,
+        "Windows Server 2022 Standard", "ServerStandard", "21H2", 20348, 3207));
+    Assert(server.Name == "Windows Server 2022 Standard", "server caption should not be converted to a client Windows 10 label");
+
+    var registryOnly = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        null, null, null, null, null, "Windows 10 Pro", "Professional", "26H2", 26300, 9711));
+    Assert(registryOnly.Name == "Windows (identificação não confirmada)",
+        "registry ProductName alone must not be displayed as a confirmed release");
+}
+
+static void WindowsIdentityPrefersCimBuild()
+{
+    var resolved = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+        "Microsoft Windows 11 Pro", "10.0.26300", 26300, 1, 48,
+        "Windows 11 Pro", "Professional", "26H2", 26200, 9711));
+
+    Assert(resolved.Name == "Windows 11" && resolved.Build == "26300",
+        "live CIM build should win and stale registry UBR should not be appended");
+    Assert(resolved.Warnings.Any(warning => warning.Contains("CIM (26300)", StringComparison.Ordinal)),
+        "the CIM versus registry build mismatch should be explicit");
 }
 
 static void SearchFiltersRows()

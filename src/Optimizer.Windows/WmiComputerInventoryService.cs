@@ -15,7 +15,7 @@ public sealed class WmiComputerInventoryService : IComputerInventoryService
     private static ComputerInventoryResult Collect(CancellationToken cancellationToken)
     {
         var warnings = new List<string>();
-        var windows = ReadWindowsVersion(warnings);
+        var windows = ReadWindowsIdentity(warnings, cancellationToken);
 
         var processors = new List<string>();
         TryRead("SELECT Name FROM Win32_Processor", item =>
@@ -95,35 +95,63 @@ public sealed class WmiComputerInventoryService : IComputerInventoryService
         return new ComputerInventoryResult(inventory, ErrorMessage: null);
     }
 
-    private static (string? Name, string? Edition, string? Version, string? Build) ReadWindowsVersion(
-        ICollection<string> warnings)
+    private static ResolvedWindowsIdentity ReadWindowsIdentity(
+        ICollection<string> warnings,
+        CancellationToken cancellationToken)
     {
+        string? caption = null;
+        string? cimVersion = null;
+        int? cimBuild = null;
+        int? productType = null;
+        int? operatingSystemSku = null;
+        TryRead("SELECT Caption, Version, BuildNumber, ProductType, OperatingSystemSKU FROM Win32_OperatingSystem", item =>
+        {
+            caption = ReadString(item["Caption"]);
+            cimVersion = ReadString(item["Version"]);
+            cimBuild = ReadNullableInt32(item["BuildNumber"]);
+            productType = ReadNullableInt32(item["ProductType"]);
+            operatingSystemSku = ReadNullableInt32(item["OperatingSystemSKU"]);
+        }, "A versão e a build do Windows não puderam ser lidas pelo CIM.", warnings, cancellationToken);
+
+        string? productName = null;
+        string? edition = null;
+        string? displayVersion = null;
+        int? registryBuild = null;
+        int? ubr = null;
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(CurrentVersionKey);
             if (key is null)
             {
                 warnings.Add("A versão do Windows não pôde ser lida no Registro.");
-                return (null, null, null, null);
             }
-
-            var product = ReadRegistryString(key, "ProductName");
-            var edition = ReadRegistryString(key, "EditionID");
-            var version = ReadRegistryString(key, "DisplayVersion");
-            var build = ReadRegistryString(key, "CurrentBuildNumber") ?? ReadRegistryString(key, "CurrentBuild");
-            var ubr = key.GetValue("UBR") is { } value
-                ? Convert.ToString(value, CultureInfo.InvariantCulture)
-                : null;
-            var fullBuild = string.IsNullOrWhiteSpace(build) ? null :
-                string.IsNullOrWhiteSpace(ubr) ? build : $"{build}.{ubr}";
-
-            return (product, edition, version, fullBuild);
+            else
+            {
+                productName = ReadRegistryString(key, "ProductName");
+                edition = ReadRegistryString(key, "EditionID");
+                displayVersion = ReadRegistryString(key, "DisplayVersion");
+                registryBuild = ReadNullableInt32(key.GetValue("CurrentBuildNumber") ?? key.GetValue("CurrentBuild"));
+                ubr = ReadNullableInt32(key.GetValue("UBR"));
+            }
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
         {
-            warnings.Add($"A versão do Windows não pôde ser lida no Registro ({exception.GetType().Name}).");
-            return (null, null, null, null);
+            warnings.Add($"Os metadados complementares do Windows não puderam ser lidos no Registro ({exception.GetType().Name}).");
         }
+
+        var identity = WindowsReleaseIdentityResolver.Resolve(new WindowsIdentitySources(
+            caption,
+            cimVersion,
+            cimBuild,
+            productType,
+            operatingSystemSku,
+            productName,
+            edition,
+            displayVersion,
+            registryBuild,
+            ubr));
+        foreach (var warning in identity.Warnings) warnings.Add(warning);
+        return identity;
     }
 
     private static string? ReadRegistryString(RegistryKey key, string name) =>
@@ -170,6 +198,26 @@ public sealed class WmiComputerInventoryService : IComputerInventoryService
         try
         {
             return value is null ? null : Convert.ToUInt64(value, CultureInfo.InvariantCulture);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+        catch (InvalidCastException)
+        {
+            return null;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static int? ReadNullableInt32(object? value)
+    {
+        try
+        {
+            return value is null ? null : Convert.ToInt32(value, CultureInfo.InvariantCulture);
         }
         catch (FormatException)
         {
