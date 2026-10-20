@@ -23,6 +23,9 @@
         <TextBlock Text="Veja o que o Windows reporta sobre dispositivos e drivers instalados." FontSize="12" Foreground="#737373" Margin="0,7,0,0" />
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <Button Style="{StaticResource QuietButton}" Command="{Binding ToggleCandidateReviewCommand}" Margin="0,0,9,0">
+          <TextBlock Text="{Binding CandidateReviewButtonLabel}" />
+        </Button>
         <Button Style="{StaticResource QuietButton}" Command="{Binding ReloadCommand}" IsEnabled="{Binding IsNotLoading}" Margin="0,0,9,0">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="↻" FontSize="16" Margin="0,0,6,0" />
@@ -58,7 +61,7 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="4">
+    <Grid Grid.Row="4" Visibility="{Binding ShowInventoryFilters, Converter={StaticResource BoolToVisibility}}">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="Auto" />
@@ -103,7 +106,7 @@
                   GridLinesVisibility="None" HeadersVisibility="Column" RowHeight="47"
                   Background="White" BorderThickness="0" RowBackground="White" AlternatingRowBackground="#FCFCFB"
                   EnableRowVirtualization="True" EnableColumnVirtualization="True"
-                  Visibility="{Binding ShowDriverGrid, Converter={StaticResource BoolToVisibility}}">
+                  Visibility="{Binding ShowInventoryGrid, Converter={StaticResource BoolToVisibility}}">
           <DataGrid.Columns>
             <DataGridTextColumn Header="DISPOSITIVO" Binding="{Binding DeviceName}" Width="2.2*" />
             <DataGridTextColumn Header="FORNECEDOR" Binding="{Binding Provider, TargetNullValue=—}" Width="1.5*" />
@@ -140,7 +143,7 @@
         </StackPanel>
 
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="390"
-                    Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+                    Visibility="{Binding ShowInventoryError, Converter={StaticResource BoolToVisibility}}">
           <Border Width="42" Height="42" Background="#F4F4F2" CornerRadius="12" HorizontalAlignment="Center">
             <TextBlock Text="!" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
@@ -152,13 +155,13 @@
         </StackPanel>
 
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400"
-                    Visibility="{Binding HasNoMatches, Converter={StaticResource BoolToVisibility}}">
+                    Visibility="{Binding ShowInventoryNoMatches, Converter={StaticResource BoolToVisibility}}">
           <TextBlock Text="Nenhum driver corresponde à busca" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
           <TextBlock Text="Tente outro termo ou altere o filtro de assinatura." FontSize="11" Foreground="#777777" Margin="0,7,0,0" HorizontalAlignment="Center" />
         </StackPanel>
 
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="400"
-                    Visibility="{Binding IsEmptyState, Converter={StaticResource BoolToVisibility}}">
+                    Visibility="{Binding ShowInventoryEmptyState, Converter={StaticResource BoolToVisibility}}">
           <Border Width="42" Height="42" Background="#F4F4F2" CornerRadius="12" HorizontalAlignment="Center">
             <TextBlock Text="▦" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
@@ -175,6 +178,104 @@
                 Visibility="{Binding ExportFeedback, Converter={StaticResource StringToVisibilityConverter}}">
           <TextBlock Text="{Binding ExportFeedback}" FontSize="10" Foreground="#6B6B6B" TextWrapping="Wrap" />
         </Border>
+
+        <ScrollViewer Grid.Row="0" Padding="14" VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding ShowCandidateReview, Converter={StaticResource BoolToVisibility}}">
+          <StackPanel>
+            <Border Background="#F5F5F3" CornerRadius="9" Padding="14" Margin="0,0,0,12">
+              <StackPanel>
+                <TextBlock Text="Candidatos ASUS revisados" FontSize="14" FontWeight="Bold" />
+                <TextBlock Text="A avaliação usa o inventário Plug and Play local e os arquivos revisados nesta etapa. Ela não compara versões para declarar driver desatualizado e não instala nada." FontSize="10" Foreground="#686868" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <TextBlock Text="{Binding CandidateInventoryStatus}" FontSize="10" FontWeight="SemiBold" Foreground="#444444" TextWrapping="Wrap" Margin="0,6,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                  <Button Style="{StaticResource QuietButton}" Command="{Binding ImportLocalPackageCommand}" IsEnabled="{Binding IsNotLoading}">
+                    <TextBlock Text="Conferir ZIP local (somente leitura)" />
+                  </Button>
+                  <ProgressBar Width="70" Height="3" IsIndeterminate="True" Margin="12,0,0,0" VerticalAlignment="Center"
+                               Visibility="{Binding IsImportingPackage, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+                <TextBlock Text="{Binding PackageImportFeedback}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Visibility="{Binding HasPackageImportFeedback, Converter={StaticResource BoolToVisibility}}" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding CandidateReviews}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="10" Padding="15" Margin="0,0,0,12">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Candidate.DeviceLabel}" FontSize="14" FontWeight="Bold" />
+                          <TextBlock Text="{Binding Candidate.Chipset}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="#F0F0EE" CornerRadius="6" Padding="8,5" VerticalAlignment="Center">
+                          <TextBlock Text="{Binding CandidateStatus}" FontSize="9" FontWeight="SemiBold" TextWrapping="Wrap" MaxWidth="250" />
+                        </Border>
+                      </Grid>
+
+                      <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="20" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Background="#FAFAF9" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="11">
+                          <StackPanel>
+                            <TextBlock Text="PACOTE INFORMADO PELO WINDOWS" FontSize="9" FontWeight="Bold" Foreground="#777777" />
+                            <TextBlock Text="{Binding InstalledPackageSummary}" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
+                          </StackPanel>
+                        </Border>
+                        <Border Grid.Column="2" Background="#FAFAF9" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="8" Padding="11">
+                          <StackPanel>
+                            <TextBlock Text="CANDIDATO DA ASUS" FontSize="9" FontWeight="Bold" Foreground="#777777" />
+                            <TextBlock Text="{Binding Candidate.PackageTitle}" FontSize="11" FontWeight="SemiBold" Margin="0,6,0,0" />
+                            <TextBlock FontSize="10" Foreground="#555555" Margin="0,3,0,0">
+                              <Run Text="Versão " /><Run Text="{Binding Candidate.Version}" /><Run Text=" · publicado em " /><Run Text="{Binding Candidate.PublishedDate}" />
+                            </TextBlock>
+                            <TextBlock FontSize="10" Foreground="#555555" Margin="0,3,0,0">
+                              <Run Text="Alvo: " /><Run Text="{Binding Candidate.TargetOperatingSystems}" />
+                            </TextBlock>
+                            <Button Style="{StaticResource QuietButton}" Command="{Binding DataContext.OpenOfficialSourceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}" HorizontalAlignment="Left" Margin="0,8,0,0">
+                              <TextBlock Text="Abrir suporte oficial ASUS" />
+                            </Button>
+                          </StackPanel>
+                        </Border>
+                      </Grid>
+
+                      <TextBlock Text="{Binding MatchStatus}" FontSize="10" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,10,0,0" />
+                      <TextBlock Text="{Binding Candidate.ArchiveIntegritySummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+                      <TextBlock FontSize="9" Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,0">
+                        <Run Text="SHA-256 publicado: " /><Run Text="{Binding Candidate.PublishedArchiveSha256, TargetNullValue='não publicado'}" />
+                      </TextBlock>
+                      <TextBlock FontSize="9" Foreground="#666666" TextWrapping="Wrap" Margin="0,3,0,0">
+                        <Run Text="SHA-256 calculado no arquivo revisado: " /><Run Text="{Binding Candidate.ReviewedArchiveSha256}" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding Candidate.CatalogSignatureSummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
+                      <TextBlock Text="{Binding Candidate.InfMembershipSummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
+                      <TextBlock FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0">
+                        <Run Text="INF: " /><Run Text="{Binding Candidate.InfName}" /><Run Text=" · seção " /><Run Text="{Binding Candidate.InfArchitectureSection}" />
+                      </TextBlock>
+                      <TextBlock Text="{Binding Candidate.OsCompatibilitySummary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
+                      <Border Background="#F7F7F5" CornerRadius="7" Padding="10" Margin="0,9,0,0">
+                        <StackPanel>
+                          <TextBlock Text="PENDÊNCIAS E LIMITE" FontSize="9" FontWeight="Bold" Foreground="#777777" />
+                          <TextBlock Text="{Binding Candidate.PendingItems}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
+                          <TextBlock Text="Instalação assistida indisponível. Nenhum instalador foi executado." FontSize="10" FontWeight="SemiBold" Foreground="#333333" TextWrapping="Wrap" Margin="0,5,0,0" />
+                        </StackPanel>
+                      </Border>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
       </Grid>
     </Border>
   </Grid>

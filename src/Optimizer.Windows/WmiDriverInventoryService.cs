@@ -49,17 +49,24 @@ public sealed class WmiDriverInventoryService : IDriverInventoryService
         }
 
         var devicesRead = TryRead(
-            "SELECT PNPDeviceID, Name, ConfigManagerErrorCode FROM Win32_PnPEntity",
+            "SELECT PNPDeviceID, Name, ConfigManagerErrorCode, HardwareID, CompatibleID FROM Win32_PnPEntity",
             item =>
             {
                 var id = ReadString(item["PNPDeviceID"]);
                 var name = ReadString(item["Name"])?.Trim();
                 var code = ReadNullableInt32(item["ConfigManagerErrorCode"]);
+                var hardwareIds = ReadStringList(item["HardwareID"]);
+                var compatibleIds = ReadStringList(item["CompatibleID"]);
                 if (string.IsNullOrWhiteSpace(id)) return;
 
                 if (driverIndexById.TryGetValue(id, out var existingIndex))
                 {
-                    drivers[existingIndex] = drivers[existingIndex] with { ProblemCode = code };
+                    drivers[existingIndex] = drivers[existingIndex] with
+                    {
+                        ProblemCode = code,
+                        HardwareIds = hardwareIds,
+                        CompatibleIds = compatibleIds
+                    };
                     return;
                 }
 
@@ -75,7 +82,9 @@ public sealed class WmiDriverInventoryService : IDriverInventoryService
                     IsSigned: null,
                     Signer: null,
                     ProblemCode: code,
-                    DriverMetadataAvailable: false));
+                    DriverMetadataAvailable: false,
+                    HardwareIds: hardwareIds,
+                    CompatibleIds: compatibleIds));
             },
             "Não foi possível consultar todos os dispositivos Plug and Play ou seus códigos informados pelo Windows.",
             warnings,
@@ -125,6 +134,16 @@ public sealed class WmiDriverInventoryService : IDriverInventoryService
 
     private static string? ReadString(object? value) =>
         value is null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
+
+    private static IReadOnlyList<string> ReadStringList(object? value)
+    {
+        if (value is not Array array) return Array.Empty<string>();
+        return array.Cast<object?>()
+            .Select(item => Convert.ToString(item, CultureInfo.InvariantCulture))
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .ToArray();
+    }
 
     private static bool? ReadNullableBoolean(object? value)
     {

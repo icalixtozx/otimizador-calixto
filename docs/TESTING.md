@@ -245,3 +245,17 @@ Este checklist não valida compatibilidade em outro computador. Erros de serviç
 - A saída do app identifica Windows 11 e conserva o aviso de divergência com `ProductName`. O aviso de canal Insider não verificado é intencional: a coleta não consulta a associação do dispositivo ao programa. Não foi feita captura de tela nem inspeção manual da página.
 - Para o diagnóstico físico de rede, consulta PowerShell/PnP somente leitura confirmou placa PRIME B550M-A AC, Realtek Ethernet `PCI\VEN_10EC&DEV_8168&SUBSYS_86771043` e Wi-Fi `PCI\VEN_10EC&DEV_C821&SUBSYS_304A1A3B`; ambas com status `OK` e código de problema 0. Versão, provider e INF estão em `docs/DRIVER-ASSISTED-INSTALLATION.md`. IDs de instância completos, serial, hostname, usuário, IP e MAC foram omitidos.
 - Nenhum driver foi baixado, instalado, substituído ou removido. O inventário ainda não comprova correspondência dos IDs aos INF dos pacotes ASUS; drivers candidatos e fluxo estão documentados em `docs/DRIVER-ASSISTED-INSTALLATION.md`. Não houve pacote de app novo nem alteração em energia, Registro, rede ou outras configurações.
+
+## Candidatos e conferência offline de drivers — 2026-10-20
+
+O harness Core cobre correspondência por Hardware ID exato, diferenciação de Compatible ID genérico, recusa de seleção quando há múltiplos dispositivos com o mesmo ID e reconhecimento de arquivo local pelos hashes revisados. Hash desconhecido permanece não validado. Esses testes usam dados simulados; não verificam assinatura, instalação ou funcionamento de drivers.
+
+### Verificação real
+
+- Raiz: `%USERPROFILE%\Documents\meu otimizador`; SDK chamado explicitamente em `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402.
+- Build Release da solução: sucesso, 0 avisos e 0 erros. Harness: **94/94** checks aprovados.
+- Consulta real do `WmiDriverInventoryService`: disponibilidade `Available`, 183 dispositivos e zero avisos. A lógica de candidato encontrou correspondência exata para Ethernet Realtek RTL8111H e Wi-Fi Realtek RTL8821CE. Windows reporta Ethernet Microsoft `1.0.0.14`/`rtcx21x64.inf` e Wi-Fi Microsoft `2024.0.8.108`/`netrtwlane.inf`.
+- ZIPs oficiais locais em `artifacts/driver-review-20261020/`: SHA-256 LAN igual ao publicado pela ASUS; SHA-256 Wi-Fi calculado localmente, sem valor oficial publicado. CRC32 e comprimentos descompactados foram verificados para todas as entradas. Todos os catálogos `.cat` reportaram assinatura válida no Windows, publisher Microsoft WHCP; os INFs alvo foram confirmados como membros dos catálogos assinados usando `WinVerifyTrust` com `DRIVER_ACTION_VERIFY` (retorno zero).
+- Os INFs conferem Hardware IDs exatos, arquitetura amd64 e alvos Windows compatíveis com o Windows 11 x64 build 26300.9711 observado. Não se testou instalação, atualização, rede após substituição, recuperação/desinstalação ou desempenho.
+- A integração visual foi compilada pelo build WPF, mas a janela não foi aberta ou inspecionada. Nenhuma tela é declarada visualmente aprovada.
+- A ação **Conferir ZIP local** calcula SHA-256 sem extrair ou executar. Só reconhece hashes dos arquivos revisados; hash desconhecido não é validado. Esse fluxo não prova o conteúdo de ZIPs diferentes.

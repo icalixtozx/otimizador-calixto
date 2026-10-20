@@ -617,3 +617,42 @@ Continuação do commit `14aab7cbe28aa41f3b052d10933ab281a094d5db`, na raiz ofic
 - Repetição final do build Release completo da solução: sucesso, 0 avisos e 0 erros. Harness Core: **91/91** verificações simuladas passaram. Uma tentativa anterior desta etapa falhou por inferência de tipo nullable; a correção foi aplicada e as execuções finais de build, harness e probe real passaram.
 - Validação real do serviço `WmiComputerInventoryService` executada por um probe temporário de console fora do repositório e sem escrita no Windows: `WindowsName=Windows 11`, `Edition=Professional`, `Version=26H2`, `Build=26300.9711`, placa `ASUSTeK COMPUTER INC. PRIME B550M-A AC`. O serviço retornou os avisos previstos para `ProductName` divergente e canal Insider não consultado. Nenhum dado de série, nome do computador, usuário, IP ou endereço MAC foi coletado para a validação/documentação.
 - Nenhum pacote de driver foi baixado/instalado/removido; nenhuma configuração de sistema foi alterada. O app instalado em `%LOCALAPPDATA%` permanece na versão anterior; não foi gerado instalador/Preview nesta etapa.
+
+## 26. Candidatos ASUS para rede e integração na página Drivers — 2026-10-20
+
+Continuação do commit `4f29d11187bdd1c38e8fe3d1dc379228a2ea2e9e`, na raiz oficial `%USERPROFILE%\Documents\meu otimizador`. A revisão anterior de drivers registrava que nenhum pacote havia sido baixado; este marco atualiza aquele estado. Nenhum instalador foi executado e nenhum driver ou configuração do Windows foi alterado.
+
+### Evidência dos pacotes oficiais
+
+- A página oficial ASUS da PRIME B550M-A AC lista Realtek RTL8111H LAN `1168.27.50.919`, Windows 11 x64, publicado em 31/12/2025; o SHA-256 publicado é `3B6946C79C745B6E5B2F9E08A9CF6F291EE5C9951F85860753F820F41D76F96D`. O pacote oficial RTL8821CE Wi-Fi `2024.10.138.3` é listado para Windows 10/11 x64, publicado em 04/10/2022; a página não publica hash para seu ZIP.
+- Downloads guardados localmente em `artifacts/driver-review-20261020/` (ignorado pelo Git): `ASUS-RTL8111H-LAN-1168.27.50.919.zip` (15.387.705 bytes) e `ASUS-RTL8821CE-WiFi-2024.10.138.3.zip` (18.051.928 bytes). LAN: hash local coincide com ASUS. Wi-Fi: SHA-256 calculado localmente `E061EBD3E77F54DA07ECED9876DB54DCAA46E871DB4015FEE6EC1F2987535647`; serve como fingerprint da cópia revisada, não prova origem independente.
+- Integridade ZIP foi verificada por CRC32 de cada entrada contra o diretório central, além de comprimento descompactado: 722 entradas/34.802.917 bytes para LAN e 37 entradas/31.111.699 bytes para Wi-Fi, todos conferidos.
+- `Get-AuthenticodeSignature` marcou todos os catálogos `.cat` dos dois pacotes como `Valid`, com signatário `Microsoft Windows Hardware Compatibility Publisher`. A associação do INF ao `.cat` correspondente foi verificada com `WinVerifyTrust`/`DRIVER_ACTION_VERIFY`: `rt68cx21x64.inf` em `rt68cx21x64.cat` e `netrtwlane.inf` em `netrtwlane.cat`, retorno `0x00000000` para ambos. A assinatura válida não comprova por si só o efeito funcional do pacote.
+- A Ethernet tem correspondência exata no INF pelo Hardware ID ASUS `PCI\VEN_10EC&DEV_8168&SUBSYS_86771043&REV_15`, sob seção x64 `NTamd64.10.0...22000`; o host Windows 11 x64 build `26300.9711` satisfaz o alvo declarado. O Wi-Fi tem correspondência exata `PCI\VEN_10EC&DEV_C821&SUBSYS_304A1A3B`, em seção `NTamd64.10.0`; a página ASUS declara Windows 10/11 64-bit.
+- Probe temporário somente leitura chamou o `WmiDriverInventoryService` real: inventário `Available`, 183 linhas de dispositivo e zero avisos. O catálogo da aplicação encontrou um dispositivo para cada pacote por Hardware ID exato. Os pacotes que o Windows reporta instalados são Microsoft Ethernet `1.0.0.14`/`rtcx21x64.inf` e Microsoft Wi-Fi `2024.0.8.108`/`netrtwlane.inf`. Nenhuma comparação entre esses esquemas de versão e as versões ASUS foi usada para declarar atualização, necessidade ou ganho de desempenho.
+
+### Implementação e integração
+
+- `WmiDriverInventoryService` agora mantém Hardware IDs e Compatible IDs em memória para comparar pacotes. O CSV e o relatório diagnóstico continuam omitindo os IDs completos.
+- A página Drivers mantém o inventário local e ganhou a área **Candidatos oficiais**, com pacote instalado reportado pelo Windows, candidato ASUS, origem, versão/data publicada, hash, resultado de assinatura/CRC/INF/arquitetura e pendências. Correspondência exata, somente Compatible ID, ausente e ambígua têm estados separados; ambiguidade não escolhe dispositivo.
+- **Conferir ZIP local (somente leitura)** calcula SHA-256 de um arquivo selecionado e reconhece somente os dois hashes revisados. O app não extrai nem executa esse arquivo. Hash desconhecido fica não validado; arquivos arbitrários não recebem parser genérico de INF nesta entrega.
+- Inventário e correspondência usam WMI local e funcionam sem Internet; link ASUS e download são necessários apenas para obter pacotes novos. A instrução para pacote trazido por USB/outro PC está em `docs/DRIVER-ASSISTED-INSTALLATION.md`.
+
+### Matriz desta etapa do plano oficial — fase 6
+
+| Capacidade | Estado atual | Evidência/limite |
+| --- | --- | --- |
+| Inventário instalado e IDs locais | Implementado e validado neste host. | Probe WMI real: 183 linhas, 0 avisos; Ethernet/Wi-Fi presentes e identificados. Continua consulta somente leitura. |
+| Encontrar candidato ASUS por Hardware ID | Implementado e validado para estes dois pacotes/dispositivos. | Correspondência exata nos INFs e um dispositivo local por candidato; em outros PCs precisa ocorrer nova leitura dos IDs e do SO. |
+| Proveniência/integridade dos arquivos revisados | Validada para os dois ZIPs desta revisão. | LAN tem hash oficial correspondente; Wi-Fi sem hash ASUS; ZIPs fora do Git em pasta ignorada. Assinaturas de catálogo e associação dos INFs verificadas no Windows. |
+| Conferência offline de pacote local | Integrada somente para ler hash e reconhecer byte a byte os arquivos já revisados. | Não extrai, verifica conteúdo desconhecido, persiste importação nem aprova origem/compatibilidade de outro pacote. |
+| Instalação assistida de driver | Não implementada; bloqueada. | Não há comando de instalar/remover/substituir nem worker elevado seguro. Nenhum driver foi instalado nesta etapa. Exige desenho, aprovação específica e validação funcional em equipamento aplicável. |
+| Validação visual da página Drivers | Pendente. | XAML integrado e compilado; janela não foi aberta nem capturada. |
+
+### Build, testes e próximos bloqueios
+
+- SDK explicitamente chamado: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`; diretório `%USERPROFILE%\Documents\meu otimizador`; configuração Release.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release --no-restore`: compilação WPF e solução completa com sucesso, 0 avisos e 0 erros.
+- `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **94/94** checks do harness aprovados. Os novos checks simulam correspondência exata, bloqueio de ambiguidade/Compatible ID genérico e reconhecimento por SHA. São verificações de lógica Core, não testes de assinatura ou instalação real.
+- Validações reais dos ZIPs e WMI são reportadas separadamente acima; não houve teste funcional dos drivers nem validação visual da janela.
+- Pendências: candidatos adicionais/OEMs e versões de outros pacotes; parser offline para arquivos desconhecidos; política completa de versão/compatibilidade; fluxo de instalação/reversão; testes funcionais em equipamento e Windows compatíveis; inspeção visual desta tela e pendências visuais históricas preservadas. Nenhuma instalação é proposta nesta etapa.

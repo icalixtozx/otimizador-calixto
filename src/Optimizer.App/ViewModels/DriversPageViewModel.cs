@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using Microsoft.Win32;
 using Optimizer.Core.Inventory;
 
@@ -22,7 +24,10 @@ public sealed class DriversPageViewModel : ObservableObject
     private string _statusMessage = "Pronto para analisar os drivers deste computador.";
     private string? _errorMessage;
     private string? _exportFeedback;
+    private string? _packageImportFeedback;
     private bool _isLoading;
+    private bool _isImportingPackage;
+    private bool _showCandidateReview;
     private DateTimeOffset? _collectedAtUtc;
 
     public DriversPageViewModel(IDriverInventoryService inventoryService)
@@ -38,13 +43,20 @@ public sealed class DriversPageViewModel : ObservableObject
         _selectedFilter = FilterOptions[0];
         ReloadCommand = new AsyncRelayCommand(LoadAsync, () => !IsLoading);
         ExportCommand = new RelayCommand(ExportFilteredDrivers, () => FilteredDrivers.Count > 0);
+        ToggleCandidateReviewCommand = new RelayCommand(ToggleCandidateReview);
+        ImportLocalPackageCommand = new AsyncRelayCommand(ImportLocalPackageAsync, () => !IsImportingPackage);
+        OpenOfficialSourceCommand = new RelayCommand<DriverPackageAssessment>(OpenOfficialSource);
     }
 
     public DriverInventoryResult? LastResult { get; private set; }
     public ObservableCollection<SignatureFilterOption> FilterOptions { get; }
     public ObservableCollection<DriverInfo> FilteredDrivers { get; } = [];
+    public ObservableCollection<DriverPackageAssessment> CandidateReviews { get; } = [];
     public AsyncRelayCommand ReloadCommand { get; }
     public RelayCommand ExportCommand { get; }
+    public RelayCommand ToggleCandidateReviewCommand { get; }
+    public AsyncRelayCommand ImportLocalPackageCommand { get; }
+    public RelayCommand<DriverPackageAssessment> OpenOfficialSourceCommand { get; }
 
     public string SearchText
     {
@@ -68,12 +80,78 @@ public sealed class DriversPageViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsEmptyState));
                 OnPropertyChanged(nameof(HasWarnings));
                 OnPropertyChanged(nameof(ShowDriverGrid));
+                OnPropertyChanged(nameof(ShowInventoryError));
+                OnPropertyChanged(nameof(ShowInventoryNoMatches));
+                OnPropertyChanged(nameof(ShowInventoryEmptyState));
+                OnPropertyChanged(nameof(ShowInventoryGrid));
+                OnPropertyChanged(nameof(CandidateInventoryStatus));
             }
         }
     }
     public string StatusMessage { get => _statusMessage; private set => SetProperty(ref _statusMessage, value); }
-    public string? ErrorMessage { get => _errorMessage; private set { if (SetProperty(ref _errorMessage, value)) OnPropertyChanged(nameof(HasError)); } }
+    public string? ErrorMessage
+    {
+        get => _errorMessage;
+        private set
+        {
+            if (SetProperty(ref _errorMessage, value))
+            {
+                OnPropertyChanged(nameof(HasError));
+                OnPropertyChanged(nameof(ShowInventoryError));
+            }
+        }
+    }
     public string? ExportFeedback { get => _exportFeedback; private set => SetProperty(ref _exportFeedback, value); }
+    public string? PackageImportFeedback
+    {
+        get => _packageImportFeedback;
+        private set
+        {
+            if (SetProperty(ref _packageImportFeedback, value))
+                OnPropertyChanged(nameof(HasPackageImportFeedback));
+        }
+    }
+    public bool HasPackageImportFeedback => !string.IsNullOrWhiteSpace(PackageImportFeedback);
+    public bool ShowCandidateReview
+    {
+        get => _showCandidateReview;
+        private set
+        {
+            if (SetProperty(ref _showCandidateReview, value))
+            {
+                OnPropertyChanged(nameof(ShowInventoryFilters));
+                OnPropertyChanged(nameof(ShowInventoryGrid));
+                OnPropertyChanged(nameof(ShowInventoryError));
+                OnPropertyChanged(nameof(ShowInventoryNoMatches));
+                OnPropertyChanged(nameof(ShowInventoryEmptyState));
+                OnPropertyChanged(nameof(CandidateReviewButtonLabel));
+            }
+        }
+    }
+    public bool ShowInventoryFilters => !ShowCandidateReview;
+    public bool ShowInventoryGrid => ShowDriverGrid && !ShowCandidateReview;
+    public bool ShowInventoryError => HasError && !ShowCandidateReview;
+    public bool ShowInventoryNoMatches => HasNoMatches && !ShowCandidateReview;
+    public bool ShowInventoryEmptyState => IsEmptyState && !ShowCandidateReview;
+    public string CandidateReviewButtonLabel => ShowCandidateReview ? "Voltar ao inventário" : "Candidatos oficiais";
+    public string CandidateInventoryStatus => State switch
+    {
+        "Success" => "Correspondência calculada a partir da leitura PnP local concluída.",
+        "Partial" => "Leitura PnP parcial: ausência de correspondência pode significar que os IDs não foram retornados.",
+        "Error" => "Inventário local indisponível: a compatibilidade do dispositivo não pode ser confirmada nesta leitura.",
+        "Empty" => "A consulta local não retornou dispositivos; nenhum candidato foi associado.",
+        "Loading" => "Lendo IDs Plug and Play localmente…",
+        _ => "Aguarde a leitura local antes de interpretar a correspondência."
+    };
+    public bool IsImportingPackage
+    {
+        get => _isImportingPackage;
+        private set
+        {
+            if (SetProperty(ref _isImportingPackage, value))
+                ImportLocalPackageCommand.NotifyCanExecuteChanged();
+        }
+    }
     public bool IsLoading
     {
         get => _isLoading;
@@ -84,6 +162,8 @@ public sealed class DriversPageViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsNotLoading));
                 OnPropertyChanged(nameof(IsEmptyState));
                 OnPropertyChanged(nameof(ShowDriverGrid));
+                OnPropertyChanged(nameof(ShowInventoryGrid));
+                OnPropertyChanged(nameof(ShowInventoryEmptyState));
                 ReloadCommand.NotifyCanExecuteChanged();
             }
         }
@@ -110,6 +190,7 @@ public sealed class DriversPageViewModel : ObservableObject
         ExportFeedback = null;
         _allDrivers = Array.Empty<DriverInfo>();
         FilteredDrivers.Clear();
+        CandidateReviews.Clear();
         OnPropertyChanged(nameof(HasDrivers));
         OnPropertyChanged(nameof(HasNoMatches));
         OnPropertyChanged(nameof(IsEmptyState));
@@ -122,6 +203,12 @@ public sealed class DriversPageViewModel : ObservableObject
         {
             var result = await _inventoryService.CollectAsync();
             _allDrivers = result.Drivers;
+            CandidateReviews.Clear();
+            if (result.Availability != InventoryAvailability.Failed)
+            {
+                foreach (var review in DriverPackageCandidateCatalog.Assess(_allDrivers))
+                    CandidateReviews.Add(review);
+            }
             _collectedAtUtc = result.CollectedAtUtc;
             OnPropertyChanged(nameof(CollectedAtLabel));
             OnPropertyChanged(nameof(DriverCountLabel));
@@ -177,7 +264,9 @@ public sealed class DriversPageViewModel : ObservableObject
         foreach (var driver in filtered) FilteredDrivers.Add(driver);
         OnPropertyChanged(nameof(HasDrivers));
         OnPropertyChanged(nameof(HasNoMatches));
+        OnPropertyChanged(nameof(ShowInventoryNoMatches));
         OnPropertyChanged(nameof(ShowDriverGrid));
+        OnPropertyChanged(nameof(ShowInventoryGrid));
         ExportCommand.NotifyCanExecuteChanged();
     }
 
@@ -202,6 +291,59 @@ public sealed class DriversPageViewModel : ObservableObject
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             ExportFeedback = $"Não foi possível salvar o arquivo ({exception.GetType().Name}).";
+        }
+    }
+
+    private void ToggleCandidateReview() => ShowCandidateReview = !ShowCandidateReview;
+
+    private async Task ImportLocalPackageAsync()
+    {
+        var dialog = new OpenFileDialog
+        {
+            CheckFileExists = true,
+            Multiselect = false,
+            Filter = "Pacote ZIP (*.zip)|*.zip|Todos os arquivos (*.*)|*.*",
+            Title = "Conferir um pacote de driver local (somente leitura)"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        IsImportingPackage = true;
+        PackageImportFeedback = "Lendo o ZIP local e calculando SHA-256. Nenhum conteúdo será extraído ou executado…";
+        try
+        {
+            await using var stream = new FileStream(dialog.FileName, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, useAsync: true);
+            var digest = await SHA256.HashDataAsync(stream);
+            var result = DriverPackageCandidateCatalog.IdentifyArchive(
+                Path.GetFileName(dialog.FileName), Convert.ToHexString(digest));
+            PackageImportFeedback = $"{result.FileName}: SHA-256 {result.Sha256}. {result.Status}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            PackageImportFeedback = $"Não foi possível ler o pacote local ({exception.GetType().Name}). Nenhum arquivo foi alterado.";
+        }
+        finally
+        {
+            IsImportingPackage = false;
+        }
+    }
+
+    private void OpenOfficialSource(DriverPackageAssessment? assessment)
+    {
+        if (assessment is null || !Uri.TryCreate(assessment.Candidate.OfficialSupportUrl, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps || uri.Host != "www.asus.com")
+        {
+            PackageImportFeedback = "O endereço oficial não pôde ser validado.";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            PackageImportFeedback = $"Não foi possível abrir a página oficial ({exception.GetType().Name}).";
         }
     }
 }

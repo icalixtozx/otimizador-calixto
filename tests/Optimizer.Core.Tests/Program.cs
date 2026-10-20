@@ -30,6 +30,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("signature filter keeps unknown separate", () => RunSync(SignatureFilterKeepsUnknownSeparate)),
     ("CSV escapes fields and omits device identifiers", () => RunSync(CsvIsSanitized)),
     ("CSV neutralizes spreadsheet formulas", () => RunSync(CsvNeutralizesFormulaCells)),
+    ("official driver candidates match exact hardware IDs and show installed metadata", () => RunSync(DriverCandidatesMatchExactHardwareIds)),
+    ("official driver candidate ambiguity is explicit and blocks installation", () => RunSync(DriverCandidateAmbiguityBlocksInstallation)),
+    ("local package recognition uses the reviewed archive SHA-256 only", () => RunSync(LocalDriverPackageRecognitionUsesHash)),
     ("diagnostic JSON omits hardware identifiers and keeps PnP codes neutral", () => RunSync(DiagnosticJsonIsSanitizedAndNeutral)),
     ("PnP codes and missing metadata are presented without diagnosis", () => RunSync(PnpStatusRemainsNeutral)),
     ("catalog rejects duplicate stable IDs", () => RunSync(CatalogRejectsDuplicateIds)),
@@ -645,9 +648,14 @@ static void SignatureFilterKeepsUnknownSeparate()
 static void CsvIsSanitized()
 {
     var deviceId = "SAMPLE\\DEVICE-ID-001";
-    var row = new DriverInfo("Device, \"special\"", deviceId, "Vendor", "1.2.3", "20250101000000.000000+000", "oem1.inf", true, "Vendor Inc.", null);
+    var hardwareId = "PCI\\VEN_1234&DEV_ABCD&SUBSYS_11223344";
+    var compatibleId = "PCI\\VEN_1234&DEV_ABCD";
+    var row = new DriverInfo("Device, \"special\"", deviceId, "Vendor", "1.2.3", "20250101000000.000000+000", "oem1.inf", true, "Vendor Inc.", null,
+        HardwareIds: [hardwareId], CompatibleIds: [compatibleId]);
     var csv = DriverCatalog.ToSanitizedCsv([row]);
     Assert(!csv.Contains(deviceId, StringComparison.Ordinal), "CSV must omit PnP identifiers");
+    Assert(!csv.Contains(hardwareId, StringComparison.Ordinal) && !csv.Contains(compatibleId, StringComparison.Ordinal),
+        "CSV must omit hardware and compatible ID arrays");
     Assert(csv.Contains("\"Device, \"\"special\"\"\"", StringComparison.Ordinal), "CSV field escaping is incorrect");
     Assert(csv.Contains("Dispositivo,Fornecedor,Versão", StringComparison.Ordinal), "CSV header missing");
 }
@@ -663,6 +671,8 @@ static IReadOnlyList<DriverInfo> SampleDrivers() =>
 static void DiagnosticJsonIsSanitizedAndNeutral()
 {
     var deviceId = "PCI\\VEN_1234&DEV_ABCD\\SERIAL-PRIVATE";
+    var hardwareId = "PCI\\VEN_1234&DEV_ABCD&SUBSYS_11223344";
+    var compatibleId = "PCI\\VEN_1234&DEV_ABCD";
     var schemeId = Guid.Parse("2f7fa2dd-bc0a-467a-8635-c1fa2355d169");
     var computer = new ComputerInventory(
         DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
@@ -681,7 +691,8 @@ static void DiagnosticJsonIsSanitizedAndNeutral()
     var drivers = new DriverInventoryResult(
         DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
         InventoryAvailability.Available,
-        [new DriverInfo("Example Device", deviceId, "Example Vendor", "1.2.3", null, "sample.inf", true, "Example Signer", 28)],
+        [new DriverInfo("Example Device", deviceId, "Example Vendor", "1.2.3", null, "sample.inf", true, "Example Signer", 28,
+            HardwareIds: [hardwareId], CompatibleIds: [compatibleId])],
         [],
         null);
     var power = new PowerPlanInventoryResult(
@@ -695,6 +706,8 @@ static void DiagnosticJsonIsSanitizedAndNeutral()
         computer, drivers, power, DateTimeOffset.Parse("2026-01-01T00:00:00Z"));
 
     Assert(!json.Contains(deviceId, StringComparison.Ordinal), "diagnostic JSON must omit the PnP device ID");
+    Assert(!json.Contains(hardwareId, StringComparison.Ordinal) && !json.Contains(compatibleId, StringComparison.Ordinal),
+        "diagnostic JSON must omit hardware and compatible ID arrays");
     Assert(!json.Contains(schemeId.ToString(), StringComparison.OrdinalIgnoreCase), "diagnostic JSON must omit power scheme GUIDs");
     Assert(!json.Contains("SERIAL-PRIVATE", StringComparison.Ordinal), "diagnostic JSON must omit serial-like identifiers");
     Assert(json.Contains("\"problemCodeWindowsReported\": 28", StringComparison.Ordinal), "diagnostic must preserve the numeric code");
@@ -718,6 +731,78 @@ static void CsvNeutralizesFormulaCells()
     var csv = DriverCatalog.ToSanitizedCsv([row]);
     Assert(csv.Contains("\"'=HYPERLINK", StringComparison.Ordinal), "formula-like text should be prefixed before export");
     Assert(csv.Contains("\"'+Vendor\"", StringComparison.Ordinal), "leading plus should be neutralized");
+}
+
+static void DriverCandidatesMatchExactHardwareIds()
+{
+    var lan = DriverPackageCandidateCatalog.All.Single(candidate => candidate.Id == "asus-rtl8111h-lan-1168.27.50.919");
+    var wifi = DriverPackageCandidateCatalog.All.Single(candidate => candidate.Id == "asus-rtl8821ce-wifi-2024.10.138.3");
+    var rows = new[]
+    {
+        new DriverInfo("Ethernet sample", "PCI\\INSTANCE-1", "Microsoft", "1.0.0.14", null, "rtcx21x64.inf", true, "Microsoft", 0,
+            HardwareIds: [lan.MatchHardwareIds[0]]),
+        new DriverInfo("Wi-Fi sample", "PCI\\INSTANCE-2", "Microsoft", "2024.0.8.108", null, "netrtwlane.inf", true, "Microsoft", 0,
+            HardwareIds: [wifi.MatchHardwareIds[0]])
+    };
+
+    var assessments = DriverPackageCandidateCatalog.Assess(rows);
+    var lanAssessment = assessments.Single(item => item.Candidate.Id == lan.Id);
+    var wifiAssessment = assessments.Single(item => item.Candidate.Id == wifi.Id);
+    Assert(lanAssessment.MatchKind == DriverPackageMatchKind.ExactHardwareId && lanAssessment.IsCandidateFound,
+        "LAN package must match only the reviewed exact hardware ID");
+    Assert(wifiAssessment.MatchKind == DriverPackageMatchKind.ExactHardwareId && wifiAssessment.IsCandidateFound,
+        "Wi-Fi package must match the reviewed exact hardware ID");
+    Assert(lanAssessment.InstalledPackageSummary.Contains("1.0.0.14", StringComparison.Ordinal),
+        "installed Windows-reported package version should be shown separately");
+    Assert(lanAssessment.Candidate.ReviewedArchiveSha256 == lanAssessment.Candidate.PublishedArchiveSha256,
+        "LAN archive digest should match the published ASUS SHA-256");
+    Assert(wifiAssessment.Candidate.PublishedArchiveSha256 is null,
+        "Wi-Fi catalog must preserve that ASUS did not publish an archive SHA-256");
+    Assert(assessments.All(item => item.Candidate.PendingItems.Contains("não houve instalação", StringComparison.OrdinalIgnoreCase)),
+        "candidate review must state that no real driver installation occurred");
+}
+
+static void DriverCandidateAmbiguityBlocksInstallation()
+{
+    var candidate = DriverPackageCandidateCatalog.All.Single(item => item.Id == "asus-rtl8111h-lan-1168.27.50.919");
+    var repeatedId = candidate.MatchHardwareIds[0];
+    var rows = new[]
+    {
+        new DriverInfo("Ethernet sample A", "PCI\\INSTANCE-A", null, null, null, null, null, null, 0,
+            HardwareIds: [repeatedId]),
+        new DriverInfo("Ethernet sample B", "PCI\\INSTANCE-B", null, null, null, null, null, null, 0,
+            HardwareIds: [repeatedId])
+    };
+
+    var assessment = DriverPackageCandidateCatalog.Assess(rows).Single(item => item.Candidate.Id == candidate.Id);
+    Assert(assessment.MatchKind == DriverPackageMatchKind.Ambiguous, "duplicate exact matches should be ambiguous");
+    Assert(assessment.InstalledDriver is null && !assessment.IsCandidateFound,
+        "ambiguous matching must not choose a device");
+    Assert(assessment.CandidateStatus.Contains("ambígua", StringComparison.OrdinalIgnoreCase),
+        "ambiguity must be visible in the review status");
+
+    var compatibleOnly = new DriverInfo("Ethernet generic", "PCI\\INSTANCE-C", null, null, null, null, null, null, 0,
+        CompatibleIds: [candidate.MatchCompatibleIds[0]]);
+    var genericAssessment = DriverPackageCandidateCatalog.Assess([compatibleOnly]).Single(item => item.Candidate.Id == candidate.Id);
+    Assert(genericAssessment.MatchKind == DriverPackageMatchKind.CompatibleIdOnly,
+        "a generic Compatible ID should be reported distinctly from an exact hardware match");
+}
+
+static void LocalDriverPackageRecognitionUsesHash()
+{
+    const string lanHash = "3B6946C79C745B6E5B2F9E08A9CF6F291EE5C9951F85860753F820F41D76F96D";
+    const string wifiHash = "E061EBD3E77F54DA07ECED9876DB54DCAA46E871DB4015FEE6EC1F2987535647";
+    var lan = DriverPackageCandidateCatalog.IdentifyArchive("offline-lan.zip", lanHash.ToLowerInvariant());
+    var wifi = DriverPackageCandidateCatalog.IdentifyArchive("offline-wifi.zip", wifiHash);
+    var unknown = DriverPackageCandidateCatalog.IdentifyArchive("other.zip", new string('A', 64));
+
+    Assert(lan.RecognizedCandidate?.Id == "asus-rtl8111h-lan-1168.27.50.919",
+        "known LAN file should be recognized independent of its local filename");
+    Assert(wifi.RecognizedCandidate?.Id == "asus-rtl8821ce-wifi-2024.10.138.3",
+        "known Wi-Fi file should be recognized by reviewed digest");
+    Assert(unknown.RecognizedCandidate is null && unknown.Status.Contains("continuam sem validação", StringComparison.Ordinal),
+        "unrecognized archive must not be considered validated");
+    AssertThrows<ArgumentException>(() => DriverPackageCandidateCatalog.IdentifyArchive("bad.zip", "not-a-digest"));
 }
 
 static void CatalogRejectsDuplicateIds()

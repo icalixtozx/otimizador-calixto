@@ -1,8 +1,8 @@
 namespace Optimizer.Core.Inventory;
 
 /// <summary>
-/// Driver data reported by Windows. DeviceId is retained only in memory for
-/// correlating Plug and Play data; it must never be displayed or exported.
+/// Driver data reported by Windows. PnP IDs are retained only in memory for
+/// correlating devices to a reviewed package; they must never be displayed or exported.
 /// </summary>
 public sealed record DriverInfo(
     string DeviceName,
@@ -14,7 +14,9 @@ public sealed record DriverInfo(
     bool? IsSigned,
     string? Signer,
     int? ProblemCode,
-    bool DriverMetadataAvailable = true)
+    bool DriverMetadataAvailable = true,
+    IReadOnlyList<string>? HardwareIds = null,
+    IReadOnlyList<string>? CompatibleIds = null)
 {
     public string DriverDetailsStatus => !DriverMetadataAvailable
         ? "Detalhes do driver não retornados"
