@@ -1,6 +1,19 @@
 # Distribuição experimental
 
-Os tamanhos, hashes e testes abaixo descrevem os artefatos 0.5.0 já produzidos, correspondentes à tag `v0.5.0-experimental`. O código atual em `main` está na versão de desenvolvimento 0.6.0. `packaging/CalixtoOptimizer.iss` já aponta para a pasta de publicação 0.6; nenhum pacote 0.6 foi gerado neste ciclo.
+## Preview autocontido 0.6.0 experimental — build 20261020-r2
+
+Origem: commit `bb3c5eb60c310cbaaa18d20f370b67c7da10d81a`. Publicação Windows x64 autocontida, 406 arquivos; o pacote inclui o runtime .NET. O ZIP e o instalador foram produzidos da mesma pasta `dotnet publish`.
+
+| Artefato | Caminho no repositório | Bytes | SHA-256 |
+|---|---|---:|---|
+| ZIP portátil | `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-portable.zip` | 65.599.195 | `20FAD64165F5166F5A7FDFB46BF30724ACBF2EE9BE649EEF07F10DA63031EF0D` |
+| Instalador EXE | `artifacts/installer-preview-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-setup.exe` | 46.799.063 | `ADE4D74A0C7E75E86BE70C9E722FCE758D0C01EABC73CE99911577DCF95966DD` |
+
+O instalador foi compilado pelo Inno Setup 7.1.0. O upgrade da instalação Preview existente passou com código 0. Os hashes dos 406 arquivos instalados coincidiram com a publicação; os dois arquivos de histórico preservaram nome, tamanho e SHA-256. O atalho do Menu Iniciar aponta para `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`. O app abriu na instalação atualizada. Não foram testadas instalação limpa nem desinstalação do R2, outro PC ou drivers. O Setup não tem assinatura digital própria. A primeira compilação Preview de 20/10 foi preservada e marcada como supersedida após a validação visual detectar o defeito da página Registro; ela não é o pacote indicado para distribuição.
+
+## Histórico de distribuição 0.5.0
+
+Os tamanhos, hashes e testes a seguir descrevem os artefatos 0.5.0 já produzidos, correspondentes à tag `v0.5.0-experimental`. O script `packaging/CalixtoOptimizer.iss` continua sendo a referência histórica do instalador 0.5.
 
 Versão 0.5.0-experimental para Windows x64. Foi testada neste PC de desenvolvimento; não foi testada em outro computador. O instalador não tem assinatura digital própria.
 

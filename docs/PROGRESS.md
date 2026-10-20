@@ -656,3 +656,58 @@ Continuação do commit `4f29d11187bdd1c38e8fe3d1dc379228a2ea2e9e`, na raiz ofic
 - `dotnet run --project .\tests\Optimizer.Core.Tests\Optimizer.Core.Tests.csproj --configuration Release --no-build`: **94/94** checks do harness aprovados. Os novos checks simulam correspondência exata, bloqueio de ambiguidade/Compatible ID genérico e reconhecimento por SHA. São verificações de lógica Core, não testes de assinatura ou instalação real.
 - Validações reais dos ZIPs e WMI são reportadas separadamente acima; não houve teste funcional dos drivers nem validação visual da janela.
 - Pendências: candidatos adicionais/OEMs e versões de outros pacotes; parser offline para arquivos desconhecidos; política completa de versão/compatibilidade; fluxo de instalação/reversão; testes funcionais em equipamento e Windows compatíveis; inspeção visual desta tela e pendências visuais históricas preservadas. Nenhuma instalação é proposta nesta etapa.
+
+## 27. Preview autocontido R2, validação visual e estado integral do plano — 2026-10-20
+
+### Correção encontrada na inspeção e origem
+
+- A primeira Preview de 20/10 foi instalada sobre a Preview existente e abriu. Na navegação para **Registro**, o processo encerrou com `System.InvalidOperationException`: uma associação WPF bidirecional tentava atualizar `CurrentStateText`, propriedade somente leitura. O evento .NET foi `0xe0434352`. Nenhuma leitura/escrita de `HideFileExt` ou outra preferência ocorreu antes da falha.
+- Corrigi as três associações `Run.Text` de `CurrentStateText`, `TargetText` e `ConsequenceText` com `Mode=OneWay` em `src/Optimizer.App/Views/RegistryPage.xaml`. A compilação seguinte abriu Registro normalmente; a janela permaneceu em execução ao percorrer as páginas.
+- Commit de origem da publicação final: `bb3c5eb60c310cbaaa18d20f370b67c7da10d81a`. A primeira Preview e seus artefatos permanecem preservados em seus caminhos anteriores; não são os arquivos recomendados abaixo.
+
+### Build e artefatos R2
+
+- SDK chamado explicitamente: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão `10.0.402`; `global.json` manteve `10.0.100` com `latestFeature`. Release compilou com 0 avisos/0 erros. Harness Core: **94/94**, todos checks do motor em adaptadores simulados; não são 94 validações reais do Windows.
+- `dotnet publish` produziu publicação Windows x64 `--self-contained true` com 406 arquivos; `coreclr.dll` e `hostfxr.dll` foram confirmados na publicação e na instalação. O mesmo diretório publicado originou ZIP e Setup.
+- Inno Setup 7.1.0 compilou `packaging/CalixtoOptimizer-Preview-20261020-r2.iss`; compilação bem-sucedida. Instalador sem assinatura digital própria.
+
+| Artefato | Caminho | Tamanho | SHA-256 |
+| --- | --- | ---: | --- |
+| ZIP portátil | `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-portable.zip` | 65.599.195 bytes | `20FAD64165F5166F5A7FDFB46BF30724ACBF2EE9BE649EEF07F10DA63031EF0D` |
+| Instalador EXE | `artifacts/installer-preview-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-setup.exe` | 46.799.063 bytes | `ADE4D74A0C7E75E86BE70C9E722FCE758D0C01EABC73CE99911577DCF95966DD` |
+
+### Upgrade e inicialização
+
+- Atualizei a instalação Preview existente, usando o mesmo AppId e diretório por usuário, com código de saída do Setup `0`. Não havia processo do app aberto durante a instalação e o script define `CloseApplications=no`; nenhum processo foi encerrado pelo instalador.
+- Comparei os 406 arquivos do payload com a publicação por SHA-256: **406 iguais, 0 divergentes**. O diário `%LOCALAPPDATA%\CalixtoOptimizer\History` tinha dois arquivos; nome relativo, tamanho e hash de ambos permaneceram idênticos ao estado anterior. Não foi aberto nem regravado pelo teste de upgrade.
+- O atalho `Calixto Optimizer Preview 20261020.lnk` aponta para `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`, que é o destino instalado. O atalho antigo 20261019 foi removido. O ProductVersion do executável instalado inclui o commit `bb3c5eb...`.
+- Iniciei o executável instalado após o upgrade. A janela abriu e permaneceu em execução. Instalação limpa e desinstalação do R2 não foram testadas; outro PC segue pendente.
+
+### Inspeção visual das páginas R2
+
+A janela foi capturada diretamente com `PrintWindow`, sem trazê-la para a frente ou usar o mouse/teclado físico. A automação navegou pelos itens da barra e acionou apenas leitura local, importação de hash e rolagem. As capturas não foram versionadas; as de Processo e Rede foram descartadas por conterem dados locais.
+
+- **Drivers:** inventário WMI real, 183 linhas. A página de candidatos mostrou os dois pacotes ASUS — Ethernet RTL8111H e Wi-Fi RTL8821CE —, pacote instalado reportado pelo Windows, origem, versão/data, sistema-alvo, correspondência de Hardware ID, validações do ZIP/catálogo/INF e pendências. A UI exercitou o reconhecimento por SHA-256 dos dois ZIPs locais conhecidos (fluxo de importação somente leitura). O R2 visual usa o mesmo código de Drivers do build anterior; não extraiu, abriu instaladores nem instalou driver. Hash reconhecido não valida ZIP genérico nem comprova a origem do Wi-Fi, cujo fornecedor não publicou hash.
+- **Processos:** leitura local exibida, com processos inacessíveis/encerrados durante a enumeração e prioridade indisponível nesses itens. Uma leitura desta sessão reportou 280 listados, 108 com acesso negado e 1 encerrado durante a leitura. Isso descreve a consulta do Windows; nenhum processo foi encerrado por nós e nenhum setter de prioridade foi chamado. Não selecionei um alvo, nem gravei captura.
+- **Registro e políticas:** página abriu sem exceção e mostrou escrita bloqueada, compatibilidade/gerenciamento organizacional e histórico sem captura nesta sessão. O texto indicou que nenhuma leitura de Registro foi solicitada. Não consultei `HideFileExt`, não capturei valor e não alterei Registro ou política.
+- **Rede:** adaptadores/configuração local carregaram; a UI apresentou a finalidade e o limite de até quatro sondagens ICMP de 1.000 ms. Não iniciei teste, DNS ativo ou ping nesta etapa; a configuração de rede não foi alterada.
+- **Planos/Energia:** telas de VIDEOIDLE e modo de energia mostraram explicitamente “sem leitura real”, AC/DC/plano não consultados e aplicação/restauração bloqueadas. Não chamei getters, setters, captura ou restauração durante esta inspeção.
+- O aplicativo ficou aberto na página Drivers para o checklist do usuário. A inspeção não alterou energia, Registro, política, rede, prioridade, processos, driver ou firmware.
+
+### Matriz completa atual do plano oficial
+
+| Fase/capacidade | Diagnóstico/leitura | Plano/configuração | Execução real | Estado atual, evidência e pendências |
+| --- | --- | --- | --- | --- |
+| 0 — Ambiente e decisões | Windows x64, versão/build, SDK e ferramentas identificados localmente. | Regras e limites estão documentados. | Build, teste local e upgrade R2 executados. | **Parcial** — nenhum segundo PC; ambiente e hardware externos pendentes. |
+| 1 — Inventário do sistema, dispositivos, drivers e energia | WMI/PnP, identidade Windows, planos e adaptadores consultados localmente. | Inventário não altera esses estados. | Leituras locais; não há mutação automática. | **Concluído neste host no escopo implementado**; limites/permissões e outros PCs pendentes. |
+| 2 — Catálogo, compatibilidade, perfis, consequências, consentimento, diário, recuperação e simulador | Prévia baseada em leitura real onde o módulo oferece getter. | Perfis e fluxo simulado existem; catálogo real de ajustes permanece pequeno e sem itens aprovados na tela Planos. | **Simulado** para o motor; snapshots sintéticos não restauram Windows. | **Parcial** — comportamento de simulação testado; plano real útil ainda incompleto. |
+| 3 — Primeiro ajuste reversível | VIDEOIDLE e modo de energia têm leitura/captura locais; processo prioritário tem identidade/estado capturados. Preferência HideFileExt permanece sem leitura atual nesta etapa. | Plano, consentimento e diário são integrados, com conflitos/recuperação condicional. | Setters de energia e HideFileExt permanecem bloqueados. Um ciclo real do serviço de prioridade foi testado antes somente no probe descartável aprovado e restaurado. | **Parcial** — nenhum ajuste de energia ou preferência de usuário foi aplicado neste ciclo; teste do probe não autoriza novas alterações. |
+| 4 — Energia, Registro, políticas, processos e Rede | Energia/planos, leitura de processo, adaptadores e diagnóstico de rede existem; Registro tem tela e chave de teste isolada anterior. | Energia, prioridade e HideFileExt têm fluxos de revisão/captura com escopo limitado; política organizacional bloqueia quando desconhecida. | Energia/HideFileExt/políticas continuam sem execução habilitada. Ciclos aprovados anteriores de probe e chave isolada não são configuração do usuário. Rede ativa foi testada em etapa anterior; não foi repetida agora. | **Parcial** — módulos reais e simulados não equivalem a capacidade ampla de aplicar/restaurar; política e vários ajustes indisponíveis. |
+| 5 — Integrações GPU | WMI informa controladores; acesso às configurações nativas existe. | Preferência por app não é lida pelo Calixto. | Nenhuma configuração nem telemetria programática de GPU. | **Parcial** — GPU presente, preferência configurada e GPU efetivamente usada continuam distintas. |
+| 6 — Instalação assistida de drivers | Inventário, IDs e dois candidatos ASUS revisados para este host; ZIP local reconhecido apenas por hashes conhecidos. | Não há seleção genérica de pacote offline nem plano completo de recuperação. | **Não implementada/bloqueada** — nenhum driver instalado, atualizado ou removido. | **Parcial** — correspondência e revisão existem; parser genérico offline, elevação segura, instalação e recuperação ainda ausentes. |
+| 7 — ZIP, Setup e recuperação/distribuição | Conteúdo/hash dos artefatos registrados. | Publicação autocontida e instalador per-user R2 compilados. | Upgrade R1→R2 no host passou; arquivos, histórico, atalho e abertura conferidos. | **Parcial** — instalação limpa, desinstalação R2, assinatura, segundo PC e recuperação em falha pendentes; empacotamento não conclui o produto. |
+| 8 — Controles específicos de hardware/firmware | Nenhuma matriz por modelo/firmware validada. | Integração por fabricante não iniciada. | BIOS, firmware, tensão e frequência não são escritos. | **Não iniciado** e bloqueado pelos requisitos de equipamento/integrador e validação específicos. |
+
+### Próxima etapa
+
+A próxima entrega pequena prevista é ampliar a conferência offline de pacotes locais desconhecidos para ler INF/catálogo, validar assinatura e corresponder Hardware IDs, arquitetura e Windows, ainda sem executar ou instalar. Depois, permanece necessário desenhar um fluxo de instalação segura por dispositivo, com recuperação; os candidatos atuais não autorizam instalação.

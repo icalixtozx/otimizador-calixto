@@ -32,7 +32,7 @@ Em 19/10/2026 foi executada uma leitura nova, depois da alteração da lógica: 
 
 ## Distribuição experimental
 
-Os pacotes 0.5.0 correspondem à tag `v0.5.0-experimental` e permanecem inalterados; eles não incluem este fluxo. A versão 0.6.0 é experimental, não validada em outro computador e o instalador não tem assinatura digital própria. Pacotes 0.6.0, hashes e estado de teste estão em `artifacts/` e `docs/PROGRESS.md`. Não foram executados testes de instalação/desinstalação do pacote 0.6.0 nesta etapa. Nenhuma GitHub Release foi publicada.
+Os pacotes 0.5.0 correspondem à tag `v0.5.0-experimental` e permanecem inalterados. O Preview autocontido 0.6.0 experimental `20261020-r2` inclui a identificação corrigida do Windows, candidatos de drivers e a correção de navegação em Registro. O upgrade local foi testado e o aplicativo abriu; instalação limpa, desinstalação, outro PC e instalação de drivers continuam pendentes. O Setup não tem assinatura digital própria e nenhuma GitHub Release foi publicada. Caminhos, hashes e matriz atual estão em `docs/PROGRESS.md` e `packaging/README-INSTALADOR.md`.
 
 Veja [diagnóstico e privacidade](docs/DIAGNOSTICS.md), [estado de implementação](docs/PROGRESS.md), [ajuste VIDEOIDLE](docs/ADJUSTMENTS.md), [catálogo de candidatos](docs/INITIAL-CATALOG.md), [recuperação](docs/RECOVERY.md), [artefatos e instalador](packaging/README-INSTALADOR.md) e [passos para publicar a pre-release](docs/RELEASE-EXPERIMENTAL.md).
 

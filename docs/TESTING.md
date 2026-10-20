@@ -259,3 +259,31 @@ O harness Core cobre correspondência por Hardware ID exato, diferenciação de 
 - Os INFs conferem Hardware IDs exatos, arquitetura amd64 e alvos Windows compatíveis com o Windows 11 x64 build 26300.9711 observado. Não se testou instalação, atualização, rede após substituição, recuperação/desinstalação ou desempenho.
 - A integração visual foi compilada pelo build WPF, mas a janela não foi aberta ou inspecionada. Nenhuma tela é declarada visualmente aprovada.
 - A ação **Conferir ZIP local** calcula SHA-256 sem extrair ou executar. Só reconhece hashes dos arquivos revisados; hash desconhecido não é validado. Esse fluxo não prova o conteúdo de ZIPs diferentes.
+
+## Preview autocontido R2 — upgrade e validação visual (2026-10-20)
+
+### Build e harness
+
+- SDK explícito: `%LOCALAPPDATA%\dotnet-sdk-10.0.402\dotnet.exe`, versão 10.0.402; `global.json` permaneceu em 10.0.100 com `latestFeature`.
+- `dotnet build .\CalixtoOptimizer.sln --configuration Release`: passou, 0 avisos e 0 erros. Harness `Optimizer.Core.Tests`: **94/94** checks aprovados. São checks do modelo Core, com adaptadores simulados; não comprovam 94 operações reais do Windows.
+- `dotnet publish` para `win-x64`, `--self-contained true`: 406 arquivos. Inno Setup 7.1.0 compilou `packaging/CalixtoOptimizer-Preview-20261020-r2.iss` com sucesso. A compilação não comprova instalação em outro PC.
+
+### Upgrade real R1 para R2
+
+- Instalador Preview R2 executado silenciosamente sobre a instalação Preview existente, por usuário; código de saída 0. Nenhum processo do app estava aberto para ser fechado. O app foi iniciado depois pelo executável instalado.
+- 406 arquivos da publicação foram comparados ao instalado por SHA-256: sem divergências. Dois arquivos de histórico local tiveram nome, tamanho e SHA-256 idênticos antes/depois.
+- O atalho `Calixto Optimizer Preview 20261020.lnk` foi conferido por leitura do `.lnk`; alvo `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`. O app abriu e permaneceu rodando. Instalação limpa e desinstalação R2 não testadas.
+
+### Inspeção visual sem tomar o foco
+
+Usei captura `PrintWindow` da janela enquanto ela estava atrás de outra janela, sem manipular mouse ou teclado físicos. A página Drivers mostrou 183 linhas WMI e os candidatos ASUS para Ethernet e Wi-Fi, com origem, status de correspondência e pendências. O fluxo de hash local foi exercitado com os dois ZIPs revisados no Preview anterior, cujo código de Drivers permaneceu idêntico ao R2. O app não extraiu, executou nem instalou os pacotes.
+
+Processos carregou a lista local e relatou acesso negado/terminado por algumas entradas; nenhum processo foi encerrado e nenhuma prioridade foi alterada. Registro abriu após a correção WPF que fixa os bindings de texto como `OneWay`; não foi consultado nem alterado `HideFileExt`. Rede carregou adaptadores locais, mas não iniciou DNS/ICMP ativo. Planos/Energia mostrou leituras reais ainda não solicitadas e execução/restauração bloqueadas; nenhum getter/setter/captura foi chamado nesta inspeção. A página Drivers ficou aberta ao final. Capturas de Processo/Rede, que continham informação local, não foram versionadas.
+
+### Artefatos
+
+- Origem: commit `bb3c5eb60c310cbaaa18d20f370b67c7da10d81a`.
+- ZIP: `artifacts/preview-v0.6.0-experimental-selfcontained-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-portable.zip`; SHA-256 `20FAD64165F5166F5A7FDFB46BF30724ACBF2EE9BE649EEF07F10DA63031EF0D`.
+- EXE: `artifacts/installer-preview-20261020-r2/CalixtoOptimizer-Preview-0.6.0-experimental-20261020-r2-win-x64-setup.exe`; SHA-256 `ADE4D74A0C7E75E86BE70C9E722FCE758D0C01EABC73CE99911577DCF95966DD`.
+
+Limites conhecidos: Setup sem assinatura digital própria; sem teste em outro PC, instalação limpa/desinstalação do R2 ou validação funcional de driver; ações reais de energia, Registro, políticas e prioridade permanecem bloqueadas pela política do aplicativo.
