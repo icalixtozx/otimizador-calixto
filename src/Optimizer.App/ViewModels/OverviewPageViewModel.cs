@@ -78,7 +78,12 @@ public sealed class OverviewPageViewModel : ObservableObject
     public string SanitizedDiagnosticJson => SanitizedDiagnosticReportBuilder.BuildJson(
         Inventory,
         DriverInventoryResult,
-        PowerPlanInventoryResult);
+        PowerPlanInventoryResult,
+        privacyContext: new DiagnosticReportPrivacyContext(
+            Environment.MachineName,
+            Environment.UserName,
+            Environment.UserDomainName),
+        computerErrorMessage: ErrorMessage);
 
     public string CollectedAtLabel => Inventory is null
         ? "Aguardando inventário do computador."

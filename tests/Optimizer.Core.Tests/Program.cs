@@ -49,6 +49,9 @@ if (args.Length == 1 && args[0] == "--power-mode-history-readonly")
     return viewModel.HistoryLoadSucceeded ? 0 : 1;
 }
 
+if (args.Length == 1 && args[0] == "--diagnostic-export-save-readonly")
+    return await DiagnosticExportReadOnlyProbe.RunAsync();
+
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("Windows 11 identity prefers matching CIM and build over stale ProductName", () => RunSync(Windows11IdentityUsesCimAndBuild)),
@@ -80,6 +83,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("driver install preview reuses consent and history while default mutation policy blocks the backend", DriverInstallPreviewAndDefaultPolicyAreSafe),
     ("directed driver association revalidates target and separates stage failure, refusal, and restart", DirectedDriverAssociationFailsClosedAndTracksRestart),
     ("diagnostic JSON omits hardware identifiers and keeps PnP codes neutral", () => RunSync(DiagnosticJsonIsSanitizedAndNeutral)),
+    ("diagnostic JSON keeps provenance, partial state, divergence, and explicit unknown fields while redacting identifiers", () => RunSync(DiagnosticJsonPreservesProvenanceAndUnknowns)),
+    ("diagnostic report save handles cancellation and overwrite confirmation", () => RunSync(DiagnosticReportSaveCancellationAndOverwrite)),
+    ("diagnostic report save verifies exact content and fails closed on write errors", () => RunSync(DiagnosticReportSaveVerifiesContentAndFailures)),
     ("PnP codes and missing metadata are presented without diagnosis", () => RunSync(PnpStatusRemainsNeutral)),
     ("catalog rejects duplicate stable IDs", () => RunSync(CatalogRejectsDuplicateIds)),
     ("plan blocks incompatible and unknown adjustments", () => RunSync(PlanBlocksIncompatibleAndUnknown)),
@@ -777,8 +783,126 @@ static void DiagnosticJsonIsSanitizedAndNeutral()
     Assert(!json.Contains(schemeId.ToString(), StringComparison.OrdinalIgnoreCase), "diagnostic JSON must omit power scheme GUIDs");
     Assert(!json.Contains("SERIAL-PRIVATE", StringComparison.Ordinal), "diagnostic JSON must omit serial-like identifiers");
     Assert(json.Contains("\"problemCodeWindowsReported\": 28", StringComparison.Ordinal), "diagnostic must preserve the numeric code");
-    Assert(json.Contains("Revise os nomes de hardware antes de compartilhar", StringComparison.Ordinal), "diagnostic must warn the user to review before sharing");
+    Assert(json.Contains("Nomes e modelos de hardware permanecem", StringComparison.Ordinal), "diagnostic must warn that hardware models can identify a device");
     Assert(!json.Contains("driverMissing", StringComparison.OrdinalIgnoreCase), "diagnostic must not infer a missing driver");
+}
+
+static void DiagnosticJsonPreservesProvenanceAndUnknowns()
+{
+    var context = new DiagnosticReportPrivacyContext(
+        "PRIVATE-PC",
+        "PRIVATE-USER",
+        "PRIVATE-DOMAIN",
+        ["PRIVATE-ALIAS"]);
+    var computer = new ComputerInventory(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        "Windows 11 Pro",
+        null,
+        "25H2",
+        "26100.1",
+        "X64",
+        "CPU PRIVATE-PC private@example.invalid",
+        ["GPU Example"],
+        null,
+        "Board Example",
+        [],
+        ["Adapter Example fe80::1"],
+        ["A divergência entre CIM build 26100 e ProductName foi preservada; C:\\Users\\PRIVATE-USER\\trace.txt 192.168.1.44 serial number: SERIAL-PRIVATE"]);
+    var drivers = new DriverInventoryResult(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        InventoryAvailability.Partial,
+        [new DriverInfo("PCI\\VEN_1234&DEV_ABCD serial number: SERIAL-DEVICE", "PCI\\VEN_1234&DEV_ABCD\\PRIVATE", "Example Provider", "1.2.3", null, "oem123.inf", true, "PRIVATE-ALIAS", 28,
+            HardwareIds: ["PCI\\VEN_1234&DEV_ABCD"], CompatibleIds: ["PCI\\VEN_1234"])],
+        ["Uma leitura parcial para PRIVATE-DOMAIN"],
+        null);
+    var power = new PowerPlanInventoryResult(
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        InventoryAvailability.Partial,
+        [new PowerPlanInfo(Guid.Parse("2f7fa2dd-bc0a-467a-8635-c1fa2355d169"), "Plano PRIVATE-USER", true, null, 180)],
+        [],
+        null);
+
+    var json = SanitizedDiagnosticReportBuilder.BuildJson(
+        computer, drivers, power,
+        DateTimeOffset.Parse("2026-01-01T00:00:00Z"),
+        context,
+        computerErrorMessage: null);
+
+    foreach (var secret in new[]
+             {
+                 "PRIVATE-PC", "PRIVATE-USER", "PRIVATE-DOMAIN", "PRIVATE-ALIAS", "private@example.invalid", "SERIAL-PRIVATE", "SERIAL-DEVICE",
+                 "192.168.1.44", "fe80::1", "oem123.inf", "PCI\\\\VEN_1234", "2f7fa2dd-bc0a-467a-8635-c1fa2355d169", "C:\\Users"
+             })
+        Assert(!json.Contains(secret, StringComparison.OrdinalIgnoreCase), $"diagnostic leaked sensitive marker {secret}");
+
+    Assert(json.Contains("Win32_OperatingSystem", StringComparison.Ordinal), "system source should be documented");
+    Assert(json.Contains("Win32_PnPSignedDriver", StringComparison.Ordinal), "driver source should be documented");
+    Assert(json.Contains("PowrProf.dll", StringComparison.Ordinal), "power source should be documented");
+    using var document = System.Text.Json.JsonDocument.Parse(json);
+    var sanitizedObservation = document.RootElement.GetProperty("system").GetProperty("observations")[0].GetString();
+    Assert(sanitizedObservation?.Contains("A divergência entre CIM build 26100 e ProductName foi preservada", StringComparison.Ordinal) == true,
+        "sanitization should preserve source divergence text");
+    Assert(json.Contains("\"availability\": \"Partial\"", StringComparison.Ordinal), "partial collection state should remain explicit");
+    Assert(json.Contains("\"windowsEdition\": null", StringComparison.Ordinal) &&
+           json.Contains("\"memory\": null", StringComparison.Ordinal), "unknown fields should remain explicit nulls");
+    Assert(json.Contains("\"unknownFields\"", StringComparison.Ordinal), "unknown field names should be listed");
+    Assert(json.Contains("\"problemCodeWindowsReported\": 28", StringComparison.Ordinal), "Windows-reported PnP code should remain data, not a diagnosis");
+}
+
+static void DiagnosticReportSaveCancellationAndOverwrite()
+{
+    var operations = new FakeDiagnosticReportFileOperations();
+    var saver = new DiagnosticReportFileSaver(operations);
+    var cancelled = saver.Save(null, "reviewed json", overwriteConfirmed: false);
+    Assert(cancelled.State == DiagnosticReportSaveState.Cancelled, "cancelled destination should be reported as cancelled");
+    Assert(!cancelled.Message.Contains("salvo", StringComparison.OrdinalIgnoreCase), "cancel must not show a success message");
+    Assert(operations.OperationCount == 0, "cancel must not touch the file system");
+
+    var destination = Path.Combine(Path.GetTempPath(), "diagnostic-report-fake", "report.json");
+    operations.AddDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+    operations.AddExistingFile(destination, "previous file");
+    var confirmationRequired = saver.Save(destination, "reviewed json", overwriteConfirmed: false);
+    Assert(confirmationRequired.State == DiagnosticReportSaveState.OverwriteConfirmationRequired,
+        "an existing file must require explicit overwrite confirmation");
+    Assert(operations.ReadText(destination) == "previous file", "unconfirmed existing content must remain unchanged");
+
+    var overwritten = saver.Save(destination, "reviewed json", overwriteConfirmed: true);
+    Assert(overwritten.State == DiagnosticReportSaveState.SavedAndVerified, "confirmed overwrite should succeed after verification");
+    Assert(operations.ReadText(destination) == "reviewed json", "the final file must exactly match the reviewed text");
+    Assert(overwritten.Message.Contains("corresponde exatamente", StringComparison.Ordinal), "success message must state exact verification");
+
+    var raceDestination = Path.Combine(Path.GetTempPath(), "diagnostic-report-fake", "appeared-after-review.json");
+    operations.BeforeMoveNew = path => operations.AddExistingFile(path, "created by another process");
+    var race = saver.Save(raceDestination, "reviewed json", overwriteConfirmed: false);
+    Assert(race.State == DiagnosticReportSaveState.OverwriteConfirmationRequired,
+        "a destination appearing after preflight must request confirmation instead of overwriting");
+    Assert(operations.ReadText(raceDestination) == "created by another process", "a race-created destination must remain unchanged");
+}
+
+static void DiagnosticReportSaveVerifiesContentAndFailures()
+{
+    var destination = Path.Combine(Path.GetTempPath(), "diagnostic-report-fake", "new-report.json");
+    var operations = new FakeDiagnosticReportFileOperations();
+    operations.AddDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+    var saver = new DiagnosticReportFileSaver(operations);
+
+    operations.NextWriteFailure = new UnauthorizedAccessException();
+    var denied = saver.Save(destination, "reviewed", overwriteConfirmed: false);
+    Assert(denied.State == DiagnosticReportSaveState.Failed && denied.FailureType == nameof(UnauthorizedAccessException),
+        "access denied must be reported as failure");
+    Assert(!denied.Message.Contains("Arquivo salvo", StringComparison.Ordinal), "access denied must not show success");
+
+    operations.NextWriteFailure = new IOException();
+    var failedWrite = saver.Save(destination, "reviewed", overwriteConfirmed: false);
+    Assert(failedWrite.State == DiagnosticReportSaveState.Failed && failedWrite.FailureType == nameof(IOException),
+        "I/O failure must be reported as failure");
+    Assert(!failedWrite.Message.Contains("Arquivo salvo", StringComparison.Ordinal), "write failure must not show success");
+
+    operations.CorruptNextRead = true;
+    var mismatch = saver.Save(destination, "reviewed", overwriteConfirmed: false);
+    Assert(mismatch.State == DiagnosticReportSaveState.Failed && mismatch.FailureType == "ContentMismatch",
+        "temporary-file mismatch must fail before finalizing the destination");
+    Assert(!operations.FileExists(destination), "a failed preflight verification must not create the destination");
 }
 
 static void PnpStatusRemainsNeutral()
@@ -3715,5 +3839,171 @@ sealed class FakeProgramInstallRunner : IProgramInstallRunner
         return Task.FromResult(Results.Count > 0
             ? Results.Dequeue()
             : new ProgramRunnerResult(ProgramRunnerOutcome.Completed, 0));
+    }
+}
+
+sealed class FakeDiagnosticReportFileOperations : IDiagnosticReportFileOperations
+{
+    private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, byte[]> _files = new(StringComparer.OrdinalIgnoreCase);
+
+    public int OperationCount { get; private set; }
+    public Exception? NextWriteFailure { get; set; }
+    public bool CorruptNextRead { get; set; }
+    public Action<string>? BeforeMoveNew { get; set; }
+
+    public bool DirectoryExists(string path)
+    {
+        OperationCount++;
+        return _directories.Contains(Path.GetFullPath(path));
+    }
+
+    public bool FileExists(string path)
+    {
+        OperationCount++;
+        return _files.ContainsKey(Path.GetFullPath(path));
+    }
+
+    public void WriteNew(string path, ReadOnlyMemory<byte> contents)
+    {
+        OperationCount++;
+        if (NextWriteFailure is not null)
+        {
+            var failure = NextWriteFailure;
+            NextWriteFailure = null;
+            throw failure;
+        }
+        var fullPath = Path.GetFullPath(path);
+        if (_files.ContainsKey(fullPath)) throw new IOException("Fake destination already exists.");
+        _files[fullPath] = contents.ToArray();
+    }
+
+    public byte[] ReadAllBytes(string path)
+    {
+        OperationCount++;
+        var bytes = _files[Path.GetFullPath(path)].ToArray();
+        if (!CorruptNextRead) return bytes;
+        CorruptNextRead = false;
+        return bytes.Append((byte)0x20).ToArray();
+    }
+
+    public void MoveNew(string sourcePath, string destinationPath)
+    {
+        OperationCount++;
+        var source = Path.GetFullPath(sourcePath);
+        var destination = Path.GetFullPath(destinationPath);
+        BeforeMoveNew?.Invoke(destination);
+        BeforeMoveNew = null;
+        if (_files.ContainsKey(destination)) throw new IOException("Fake destination already exists.");
+        _files.Add(destination, _files[source]);
+        _files.Remove(source);
+    }
+
+    public void ReplaceExisting(string sourcePath, string destinationPath)
+    {
+        OperationCount++;
+        var source = Path.GetFullPath(sourcePath);
+        var destination = Path.GetFullPath(destinationPath);
+        if (!_files.ContainsKey(destination)) throw new FileNotFoundException();
+        _files[destination] = _files[source];
+        _files.Remove(source);
+    }
+
+    public void Delete(string path)
+    {
+        OperationCount++;
+        _files.Remove(Path.GetFullPath(path));
+    }
+
+    public void AddDirectory(string path) => _directories.Add(Path.GetFullPath(path));
+    public void AddExistingFile(string path, string contents) => _files[Path.GetFullPath(path)] = System.Text.Encoding.UTF8.GetBytes(contents);
+    public string ReadText(string path) => System.Text.Encoding.UTF8.GetString(_files[Path.GetFullPath(path)]);
+}
+
+static class DiagnosticExportReadOnlyProbe
+{
+    public static async Task<int> RunAsync()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("SKIP: o relatório real exige as APIs de inventário do Windows.");
+            return 2;
+        }
+
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "CalixtoOptimizer-DiagnosticExport-Test", Guid.NewGuid().ToString("N"));
+        var destination = Path.Combine(temporaryDirectory, "diagnostic-report.json");
+        try
+        {
+            Directory.CreateDirectory(temporaryDirectory);
+            var computerResult = await new WmiComputerInventoryService().CollectAsync();
+            var drivers = await new WmiDriverInventoryService().CollectAsync();
+            var power = new WindowsPowerPlanInventoryService().Collect();
+            var privacy = new DiagnosticReportPrivacyContext(Environment.MachineName, Environment.UserName, Environment.UserDomainName);
+            var json = SanitizedDiagnosticReportBuilder.BuildJson(
+                computerResult.Inventory,
+                drivers,
+                power,
+                privacyContext: privacy,
+                computerErrorMessage: computerResult.ErrorMessage);
+
+            var deviceIdentifiers = drivers.Drivers
+                .SelectMany(driver => new[] { driver.DeviceId }.Concat(driver.HardwareIds ?? Array.Empty<string>()).Concat(driver.CompatibleIds ?? Array.Empty<string>()))
+                .Where(identifier => !string.IsNullOrWhiteSpace(identifier));
+            var leakedDeviceIdentifier = deviceIdentifiers.Any(identifier => json.Contains(identifier!, StringComparison.OrdinalIgnoreCase));
+            var leakedSchemeGuid = power.Plans.Any(plan => json.Contains(plan.SchemeId.ToString(), StringComparison.OrdinalIgnoreCase));
+            var leakedAddress = System.Text.RegularExpressions.Regex.IsMatch(
+                json,
+                @"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(100));
+            var leakedPath = System.Text.RegularExpressions.Regex.IsMatch(
+                json,
+                @"(?i)[A-Z]:\\[^\r\n\t\""<>|]*",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(100));
+            if (leakedDeviceIdentifier || leakedSchemeGuid || leakedAddress || leakedPath)
+            {
+                Console.Error.WriteLine("FAIL: uma classe de identificador proibida apareceu no relatório sanitizado; os valores não serão impressos.");
+                return 1;
+            }
+
+            var result = new DiagnosticReportFileSaver().Save(destination, json, overwriteConfirmed: false);
+            if (result.State != DiagnosticReportSaveState.SavedAndVerified)
+            {
+                Console.Error.WriteLine($"FAIL: salvamento real não foi confirmado ({result.FailureType ?? result.State.ToString()}).");
+                return 1;
+            }
+
+            var savedBytes = await File.ReadAllBytesAsync(destination);
+            var expectedBytes = new System.Text.UTF8Encoding(false).GetBytes(json);
+            var exactMatch = savedBytes.AsSpan().SequenceEqual(expectedBytes);
+            System.Text.Json.JsonDocument.Parse(savedBytes).Dispose();
+
+            Console.WriteLine("Consultas locais somente leitura: nenhuma rede foi acessada e nenhum setter foi chamado.");
+            Console.WriteLine($"Sistema: {(computerResult.Inventory is null ? (computerResult.ErrorMessage is null ? "NotCollected" : "Failed") : computerResult.Inventory.Warnings.Count == 0 ? "Available" : "Partial")}; avisos={computerResult.Inventory?.Warnings.Count ?? 0}; CPU={(!string.IsNullOrWhiteSpace(computerResult.Inventory?.Processor) ? 1 : 0)}; GPUs={computerResult.Inventory?.GraphicsAdapters.Count ?? 0}; armazenamento={computerResult.Inventory?.StorageDevices.Count ?? 0}; adaptadores físicos={computerResult.Inventory?.NetworkAdapters.Count ?? 0}.");
+            Console.WriteLine($"Drivers/dispositivos WMI: {drivers.Availability}; registros={drivers.Drivers.Count}; avisos={drivers.Warnings.Count}.");
+            Console.WriteLine($"Planos PowrProf: {power.Availability}; registros={power.Plans.Count}; avisos={power.Warnings.Count}.");
+            Console.WriteLine($"Arquivo temporário salvo e relido; JSON válido; conteúdo exato={exactMatch}; bytes={savedBytes.Length}; SHA-256={Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(savedBytes))}.");
+            Console.WriteLine("Campos sensíveis não foram impressos no console. O arquivo temporário será removido ao final.");
+            return exactMatch ? 0 : 1;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException or System.Text.Json.JsonException)
+        {
+            Console.Error.WriteLine($"FAIL: consulta ou validação do salvamento real falhou ({exception.GetType().Name}).");
+            return 1;
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(temporaryDirectory)) Directory.Delete(temporaryDirectory, recursive: true);
+                var parent = Path.GetDirectoryName(temporaryDirectory);
+                if (parent is not null && Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any()) Directory.Delete(parent);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                Console.Error.WriteLine($"WARN: limpeza da pasta de teste incompleta ({exception.GetType().Name}); local: pasta temporária CalixtoOptimizer-DiagnosticExport-Test.");
+            }
+        }
     }
 }

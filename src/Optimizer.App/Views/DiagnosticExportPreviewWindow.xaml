@@ -15,7 +15,7 @@
     <StackPanel>
       <TextBlock Text="Relatório diagnóstico sanitizado" FontSize="20" FontWeight="Bold" />
       <TextBlock Text="Confira o conteúdo antes de salvar. O arquivo não é enviado automaticamente." FontSize="11" Foreground="#666666" Margin="0,6,0,0" />
-      <TextBlock Text="IDs PnP, GUIDs de planos, nome da conta/computador, números de série, endereços de rede e caminhos locais foram omitidos." FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+      <TextBlock Text="Esta é exatamente a prévia que será salva. IDs PnP, GUIDs, conta/computador, e-mails, IPv4, números de série e caminhos locais conhecidos são omitidos ou redigidos. Nomes/modelos de hardware podem identificar características do equipamento; revise tudo antes de compartilhar. Fontes, resultados parciais, divergências e campos desconhecidos permanecem visíveis." FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
     </StackPanel>
     <TextBox x:Name="ReportText" Grid.Row="2" IsReadOnly="True" AcceptsReturn="True"
              TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
