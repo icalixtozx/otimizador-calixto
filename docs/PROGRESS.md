@@ -991,3 +991,24 @@ Continuação do commit `3126bb33149f5ff78d56b0b0d4611adfbe55a5c4`. O pedido aut
 ### Próxima menor entrega proposta, sem depender do WinGet
 
 Concluir a integração visual somente de leitura das páginas existentes (começar pela nova faixa de estado WinGet e confirmar que navegar para fora/voltar e ler programas localmente não invoca WinGet; depois conferir Processos, Registro, Rede e Energia sem acionar sondagens/setters). Critérios: confirmar pelo executável de Release a origem do HWND/PID/caminho, registrar estado e erros mostrados, demonstrar que as páginas continuam acessíveis quando o pacote AppX falta e deixar toda operação real sem executar. Isso fecha evidência de integração da base sem tentar recuperar WinGet nem declarar concluída a fase 6.
+
+## 37. Tentativa de validação visual após indisponibilidade do WinGet — 2026-10-20
+
+Continuação do commit `ab889295f56393000d07486ff8f749b84164c456`. Não houve instalação, sondagem ativa de rede ou alteração de configuração. A janela foi identificada antes de qualquer navegação; como o caminho não correspondia ao executável Release do repositório, a inspeção foi interrompida.
+
+- **Executável que deveria ser inspecionado:** `C:\Users\Computador\Documents\meu otimizador\src\Optimizer.App\bin\Release\net10.0-windows\Optimizer.App.exe`; tamanho 162.816 bytes, SHA-256 `E0A875259B3873DD56FAF09E046BBB976531746CD58CF468E19C9BB08191DCD3`.
+- A enumeração visual da automação identificou a Preview instalada em `%LOCALAPPDATA%\Programs\CalixtoOptimizer-Preview-20261019\Optimizer.App.exe`. Consulta somente leitura de processo confirmou PID `30844` e o mesmo caminho da Preview. Nenhuma interação, captura visual ou navegação foi feita nessa janela. Portanto, a faixa WinGet, o inventário local e as páginas Processos, Registro, Rede e Energia **não foram visualmente validados nesta etapa**.
+- O estado e a implementação do WinGet continuam documentados na seção 36. Este resultado não altera o diagnóstico de disponibilidade do perfil e não demonstra que a ausência do pacote bloqueia as demais páginas.
+- Nenhum build ou teste foi executado nesta etapa; não houve mudança de código. Build Release e harness anteriores continuam sendo evidência anterior, não validação visual do fluxo pedido.
+
+### Checklist manual consolidado pendente
+
+Abra manualmente o executável Release acima e confira, sem iniciar operações:
+
+- [ ] **Programas:** a faixa informa que `Microsoft.Winget.Source` está indisponível neste perfil e que a recuperação está pendente; “Ler programas instalados” ainda consulta o inventário local. Não iniciar verificação/instalação WinGet.
+- [ ] **Processos:** a lista carrega; não encerrar processo nem alterar prioridade.
+- [ ] **Registro:** a página abre e apresenta estado/revisão; não capturar, aplicar ou restaurar.
+- [ ] **Rede:** adaptadores e estado local carregam; não iniciar DNS, ICMP ou outras sondagens.
+- [ ] **Energia:** planos/estado carregam quando solicitados; não capturar, aplicar ou restaurar.
+
+Compilação ou leitura estática do XAML/código não marca nenhum desses itens como validação visual. A próxima entrega funcional proposta após concluir essa inspeção é a **avaliação somente leitura de gerenciamento para o fluxo de Registro**: para o ajuste já existente, apresentar evidências documentadas de gerenciamento quando disponíveis, classificar o caso inconclusivo como desconhecido e manter a escrita bloqueada. Critérios: compatibilidade de Windows documentada, fonte da evidência exibida, resultados simulados para gerenciado/não gerenciado/desconhecido/acesso negado e nenhuma gravação real. Isso avança a fatia parcial de Registro/Políticas sem depender do WinGet; não declara implementado um motor genérico de políticas.
