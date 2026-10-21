@@ -35,12 +35,10 @@ public partial class OverviewPage : UserControl
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or FileNotFoundException)
         {
-            MessageBox.Show(
+            AppMessageDialog.ShowInformation(
                 Window.GetWindow(this),
-                $"Não foi possível abrir {displayName}. Você pode acessá-lo manualmente pelo Windows.\n\n{exception.Message}",
                 "Calixto Optimizer",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+                $"Não foi possível abrir {displayName}. Você pode acessá-lo manualmente pelo Windows.\n\n{exception.Message}");
         }
     }
 }

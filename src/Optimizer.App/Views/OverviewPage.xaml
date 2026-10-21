@@ -23,7 +23,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="Seu computador, em detalhe." FontSize="28" FontWeight="Bold" />
-          <TextBlock Text="Uma leitura clara do hardware e dos drivers instalados." FontSize="13" Foreground="#737373" Margin="0,7,0,0" />
+          <TextBlock Text="Uma leitura clara do hardware e dos drivers instalados." FontSize="13" Foreground="{StaticResource Muted}" Margin="0,7,0,0" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Style="{StaticResource QuietButton}" Click="PreviewDiagnostics_Click" IsEnabled="{Binding HasDiagnosticData}" Margin="0,0,9,0" Padding="13,10">
@@ -59,7 +59,7 @@
           </Border>
           <StackPanel Grid.Row="0" Grid.Column="1" Margin="11,0,8,0" VerticalAlignment="Center">
             <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold" />
-            <TextBlock Text="A análise é local e somente leitura. O app não promete ganho de FPS ou redução de ping." FontSize="11" Foreground="#777777" Margin="0,3,0,0" />
+            <TextBlock Text="A análise é local e somente leitura. O app não promete ganho de FPS ou redução de ping." FontSize="11" Foreground="{StaticResource Muted}" Margin="0,3,0,0" />
           </StackPanel>
           <ProgressBar Grid.Row="0" Grid.Column="2" Width="64" Height="3" IsIndeterminate="True"
                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" VerticalAlignment="Center" />
@@ -67,7 +67,7 @@
                         Margin="11,9,0,0" Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibility}}">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
-                <TextBlock Text="{Binding}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,2,0,0" />
+                <TextBlock Text="{Binding}" FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,0" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -83,7 +83,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel>
               <TextBlock Text="PLANOS DE ENERGIA DO WINDOWS" FontSize="11" FontWeight="Bold" />
-              <TextBlock Text="{Binding PowerPlanStatusText}" FontSize="10" Foreground="#777777" Margin="0,4,0,0" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding PowerPlanStatusText}" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock Grid.Column="1" Text="SOMENTE LEITURA" FontSize="9" FontWeight="Bold" Foreground="#555555" VerticalAlignment="Top" />
           </Grid>
@@ -102,7 +102,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <TextBlock Text="AC e DC são exibidos separadamente. A leitura não altera o plano ativo nem qualquer valor." FontSize="9" Foreground="#888888" Margin="0,7,0,0" />
+          <TextBlock Text="AC e DC são exibidos separadamente. A leitura não altera o plano ativo nem qualquer valor." FontSize="9" Foreground="{StaticResource Muted}" Margin="0,7,0,0" />
         </StackPanel>
       </Border>
 
@@ -116,23 +116,23 @@
         </Grid.ColumnDefinitions>
         <Border Grid.Column="0" Style="{StaticResource CardBorder}" MinHeight="127">
           <StackPanel>
-            <TextBlock Text="WINDOWS" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="WINDOWS" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="Bold" />
             <TextBlock Text="{Binding WindowsLabel}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,13,0,0" />
-            <TextBlock Text="Edição, build e arquitetura reportadas pelo sistema" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,7,0,0" />
+            <TextBlock Text="Edição, build e arquitetura reportadas pelo sistema" FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,7,0,0" />
           </StackPanel>
         </Border>
         <Border Grid.Column="2" Style="{StaticResource CardBorder}" MinHeight="127">
           <StackPanel>
-            <TextBlock Text="PROCESSADOR" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="PROCESSADOR" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="Bold" />
             <TextBlock Text="{Binding ProcessorLabel}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,13,0,0" />
-            <TextBlock Text="Identificação fornecida pelo Windows" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,7,0,0" />
+            <TextBlock Text="Identificação fornecida pelo Windows" FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,7,0,0" />
           </StackPanel>
         </Border>
         <Border Grid.Column="4" Style="{StaticResource CardBorder}" MinHeight="127">
           <StackPanel>
-            <TextBlock Text="MEMÓRIA INSTALADA" Foreground="#858585" FontSize="9" FontWeight="Bold" />
+            <TextBlock Text="MEMÓRIA INSTALADA" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="Bold" />
             <TextBlock Text="{Binding MemoryLabel}" FontSize="20" FontWeight="Bold" Margin="0,10,0,0" />
-            <TextBlock Text="Capacidade reportada pelo Windows" FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,5,0,0" />
+            <TextBlock Text="Capacidade reportada pelo Windows" FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0" />
           </StackPanel>
         </Border>
       </Grid>
@@ -146,7 +146,7 @@
         <Border Grid.Column="0" Style="{StaticResource CardBorder}">
           <StackPanel>
             <TextBlock Text="COMPONENTES" FontSize="12" FontWeight="Bold" />
-            <TextBlock Text="Controladores gráficos reportados pelo Windows" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,17,0,5" />
+            <TextBlock Text="Controladores gráficos reportados pelo Windows" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold" Margin="0,17,0,5" />
             <TextBlock Text="{Binding GraphicsLabel}" FontSize="12" TextWrapping="Wrap" />
             <TextBlock Text="Esse inventário não identifica a preferência por aplicativo nem qual GPU está sendo usada agora." FontSize="10" Foreground="#656565" TextWrapping="Wrap" LineHeight="15" Margin="0,7,0,0" />
             <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Padding="11,8" Click="OpenGraphicsSettings_Click">
@@ -155,15 +155,15 @@
             <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,7,0,0" Padding="11,8" Click="OpenTaskManager_Click">
               <TextBlock Text="Ver GPU em uso no Gerenciador de Tarefas" FontSize="10" TextWrapping="Wrap" />
             </Button>
-            <TextBlock Text="O Gerenciador de Tarefas mostra uma amostra atual por processo; a preferência configurada não garante que esse seja sempre o mecanismo efetivamente usado." FontSize="9" Foreground="#888888" TextWrapping="Wrap" LineHeight="14" Margin="0,7,0,0" />
+            <TextBlock Text="O Gerenciador de Tarefas mostra uma amostra atual por processo; a preferência configurada não garante que esse seja sempre o mecanismo efetivamente usado." FontSize="9" Foreground="{StaticResource Muted}" TextWrapping="Wrap" LineHeight="14" Margin="0,7,0,0" />
             <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
-            <TextBlock Text="Placa-mãe" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="Placa-mãe" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
             <TextBlock Text="{Binding MotherboardLabel}" FontSize="12" TextWrapping="Wrap" />
             <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
-            <TextBlock Text="Armazenamento" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="Armazenamento" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
             <TextBlock Text="{Binding StorageLabel}" FontSize="11" TextWrapping="Wrap" LineHeight="17" />
             <Border Height="1" Background="{StaticResource Line}" Margin="0,14,0,0" />
-            <TextBlock Text="Adaptadores de rede" Foreground="#808080" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
+            <TextBlock Text="Adaptadores de rede" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold" Margin="0,13,0,5" />
             <TextBlock Text="{Binding NetworkLabel}" FontSize="11" TextWrapping="Wrap" LineHeight="17" />
           </StackPanel>
         </Border>
@@ -171,7 +171,7 @@
         <Border Grid.Column="2" Style="{StaticResource CardBorder}">
           <StackPanel>
             <TextBlock Text="DRIVERS" FontSize="12" FontWeight="Bold" />
-            <TextBlock Text="Identificador local" FontSize="11" Foreground="#777777" Margin="0,5,0,15" />
+            <TextBlock Text="Identificador local" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,5,0,15" />
             <TextBlock Text="O inventário mostra versões e fornecedores reportados pelo Windows. Não compara com catálogos externos e não determina se um pacote é o mais recente." FontSize="11" Foreground="#656565" TextWrapping="Wrap" LineHeight="17" />
             <Button Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Margin="0,18,0,0"
                     Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="drivers">

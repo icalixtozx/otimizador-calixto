@@ -7,9 +7,33 @@
     <SolidColorBrush x:Key="Ink" Color="#111111" />
     <SolidColorBrush x:Key="Paper" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Canvas" Color="#F5F5F3" />
-    <SolidColorBrush x:Key="Muted" Color="#777777" />
+    <SolidColorBrush x:Key="Muted" Color="#595959" />
     <SolidColorBrush x:Key="Line" Color="#E7E7E4" />
     <SolidColorBrush x:Key="Soft" Color="#F0F0EE" />
+    <SolidColorBrush x:Key="ControlBorder" Color="#A6A6A3" />
+    <SolidColorBrush x:Key="DisabledSurface" Color="#E8E8E6" />
+    <SolidColorBrush x:Key="DisabledInk" Color="#555555" />
+    <SolidColorBrush x:Key="SelectedSurface" Color="#222222" />
+    <SolidColorBrush x:Key="SelectedText" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="HoverSurface" Color="#E8E8E6" />
+    <SolidColorBrush x:Key="HoverText" Color="#111111" />
+
+    <!-- Keep stock WPF templates readable when Windows changes its theme. -->
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#111111" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#F5F5F3" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#111111" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#767673" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="#555555" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#222222" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#E8E8E6" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#111111" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#111111" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InfoBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InfoTextBrushKey}" Color="#111111" />
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
     <converters:SignatureLabelConverter x:Key="SignatureLabelConverter" />
@@ -20,7 +44,6 @@
 
     <Style TargetType="TextBlock">
       <Setter Property="FontFamily" Value="Segoe UI" />
-      <Setter Property="Foreground" Value="{StaticResource Ink}" />
       <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
     </Style>
 
@@ -50,7 +73,13 @@
                 <Setter TargetName="Border" Property="Opacity" Value="0.72" />
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Border" Property="Opacity" Value="0.38" />
+                <Setter TargetName="Border" Property="Background" Value="{StaticResource DisabledSurface}" />
+                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+                <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource Ink}" />
+                <Setter TargetName="Border" Property="BorderThickness" Value="2" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -79,7 +108,13 @@
                 <Setter TargetName="Border" Property="Opacity" Value="0.72" />
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
-                <Setter TargetName="Border" Property="Opacity" Value="0.38" />
+                <Setter TargetName="Border" Property="Background" Value="#5B5B5B" />
+                <Setter TargetName="Border" Property="BorderBrush" Value="#5B5B5B" />
+                <Setter Property="Foreground" Value="{StaticResource Paper}" />
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+                <Setter TargetName="Border" Property="BorderThickness" Value="2" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -91,6 +126,184 @@
       <Setter Property="Background" Value="{StaticResource Paper}" />
       <Setter Property="Foreground" Value="{StaticResource Ink}" />
       <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+    </Style>
+
+    <!-- Unstyled buttons use the same explicit light surface and readable disabled state. -->
+    <Style TargetType="Button" BasedOn="{StaticResource QuietButton}" />
+
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CaretBrush" Value="{StaticResource Ink}" />
+      <Setter Property="SelectionBrush" Value="{StaticResource SelectedSurface}" />
+      <Setter Property="Padding" Value="8,6" />
+      <Style.Triggers>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+          <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+          <Setter Property="BorderThickness" Value="2" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Background" Value="{StaticResource DisabledSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+          <Setter Property="CaretBrush" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="MinHeight" Value="32" />
+      <Style.Triggers>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+          <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+          <Setter Property="BorderThickness" Value="2" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Background" Value="{StaticResource DisabledSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="Padding" Value="9,7" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource HoverSurface}" />
+                <Setter Property="Foreground" Value="{StaticResource HoverText}" />
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SelectedSurface}" />
+                <Setter Property="Foreground" Value="{StaticResource SelectedText}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="ListBox">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+    </Style>
+
+    <Style TargetType="ListBoxItem">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource HoverSurface}" />
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SelectedSurface}" />
+                <Setter Property="Foreground" Value="{StaticResource SelectedText}" />
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Padding" Value="2" />
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style TargetType="TabControl">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+    </Style>
+
+    <Style TargetType="TabItem">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="Padding" Value="12,8" />
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="{StaticResource SelectedSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource SelectedText}" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style TargetType="ToolTip">
+      <Setter Property="Background" Value="{StaticResource Ink}" />
+      <Setter Property="Foreground" Value="{StaticResource Paper}" />
+      <Setter Property="BorderBrush" Value="#555555" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="8,5" />
+    </Style>
+
+    <Style TargetType="ContextMenu">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource ControlBorder}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style TargetType="MenuItem">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Style.Triggers>
+        <Trigger Property="IsHighlighted" Value="True">
+          <Setter Property="Background" Value="{StaticResource HoverSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource HoverText}" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
     <Style x:Key="CardBorder" TargetType="Border">
@@ -127,7 +340,7 @@
                 <Setter Property="Foreground" Value="White" />
               </DataTrigger>
               <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.54" />
+                <Setter Property="Foreground" Value="#A6A6A6" />
                 <Setter Property="Cursor" Value="Arrow" />
               </Trigger>
             </ControlTemplate.Triggers>
@@ -138,12 +351,36 @@
 
     <Style TargetType="DataGridColumnHeader">
       <Setter Property="Background" Value="#FAFAF9" />
-      <Setter Property="Foreground" Value="#777777" />
+      <Setter Property="Foreground" Value="{StaticResource Muted}" />
       <Setter Property="FontSize" Value="11" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Padding" Value="12,13" />
       <Setter Property="BorderBrush" Value="{StaticResource Line}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+
+    <Style TargetType="DataGrid">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+      <Setter Property="RowBackground" Value="{StaticResource Paper}" />
+      <Setter Property="AlternatingRowBackground" Value="{StaticResource Canvas}" />
+      <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource Line}" />
+      <Setter Property="VerticalGridLinesBrush" Value="{StaticResource Line}" />
+    </Style>
+
+    <Style TargetType="DataGridRow">
+      <Setter Property="Background" Value="{StaticResource Paper}" />
+      <Setter Property="Foreground" Value="{StaticResource Ink}" />
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="{StaticResource SelectedSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource SelectedText}" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
+        </Trigger>
+      </Style.Triggers>
     </Style>
 
     <Style TargetType="DataGridCell">
@@ -152,8 +389,11 @@
       <Setter Property="Foreground" Value="{StaticResource Ink}" />
       <Style.Triggers>
         <Trigger Property="IsSelected" Value="True">
-          <Setter Property="Background" Value="#EAEAE8" />
-          <Setter Property="Foreground" Value="{StaticResource Ink}" />
+          <Setter Property="Background" Value="{StaticResource SelectedSurface}" />
+          <Setter Property="Foreground" Value="{StaticResource SelectedText}" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Foreground" Value="{StaticResource DisabledInk}" />
         </Trigger>
       </Style.Triggers>
     </Style>

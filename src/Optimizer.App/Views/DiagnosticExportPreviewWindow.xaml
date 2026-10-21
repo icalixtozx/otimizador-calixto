@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Revisar relatório diagnóstico" Width="920" Height="690"
         MinWidth="680" MinHeight="480" ResizeMode="CanResize"
-        WindowStartupLocation="CenterOwner" Background="#F7F7F5" FontFamily="Segoe UI">
+        WindowStartupLocation="CenterOwner" Background="{StaticResource Canvas}"
+        Foreground="{StaticResource Ink}" FontFamily="Segoe UI">
   <Grid Margin="22">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
@@ -14,18 +15,18 @@
     </Grid.RowDefinitions>
     <StackPanel>
       <TextBlock Text="Relatório diagnóstico sanitizado" FontSize="20" FontWeight="Bold" />
-      <TextBlock Text="Confira o conteúdo antes de salvar. O arquivo não é enviado automaticamente." FontSize="11" Foreground="#666666" Margin="0,6,0,0" />
-      <TextBlock Text="Esta é exatamente a prévia que será salva. IDs PnP, GUIDs, conta/computador, e-mails, IPv4, números de série e caminhos locais conhecidos são omitidos ou redigidos. Nomes/modelos de hardware podem identificar características do equipamento; revise tudo antes de compartilhar. Fontes, resultados parciais, divergências e campos desconhecidos permanecem visíveis." FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+      <TextBlock Text="Confira o conteúdo antes de salvar. O arquivo não é enviado automaticamente." FontSize="11" Foreground="{StaticResource Muted}" Margin="0,6,0,0" />
+      <TextBlock Text="Esta é exatamente a prévia que será salva. IDs PnP, GUIDs, conta/computador, e-mails, IPv4, números de série e caminhos locais conhecidos são omitidos ou redigidos. Nomes/modelos de hardware podem identificar características do equipamento; revise tudo antes de compartilhar. Fontes, resultados parciais, divergências e campos desconhecidos permanecem visíveis." FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0" />
     </StackPanel>
     <TextBox x:Name="ReportText" Grid.Row="2" IsReadOnly="True" AcceptsReturn="True"
              TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-             FontFamily="Consolas" FontSize="10" Background="White" BorderBrush="#DDDDDA"
+             FontFamily="Consolas" FontSize="10" Background="{StaticResource Paper}" Foreground="{StaticResource Ink}" BorderBrush="{StaticResource ControlBorder}"
              BorderThickness="1" Padding="12" />
     <Grid Grid.Row="4">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-      <TextBlock x:Name="FeedbackText" FontSize="10" Foreground="#666666" VerticalAlignment="Center" TextWrapping="Wrap" />
-      <Button Grid.Column="1" Content="Fechar" MinWidth="90" Margin="0,0,8,0" Padding="14,8" Click="Close_Click" />
-      <Button Grid.Column="2" Content="Salvar JSON…" MinWidth="125" Padding="14,8" Background="#111111" Foreground="White" BorderBrush="#111111" Click="Save_Click" />
+      <TextBlock x:Name="FeedbackText" FontSize="10" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap" />
+      <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Fechar" MinWidth="90" Margin="0,0,8,0" Padding="14,8" Click="Close_Click" />
+      <Button Grid.Column="2" Style="{StaticResource PrimaryButton}" Content="Salvar JSON…" MinWidth="125" Padding="14,8" Click="Save_Click" />
     </Grid>
   </Grid>
 </Window>

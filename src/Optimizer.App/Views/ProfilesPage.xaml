@@ -9,7 +9,7 @@
     <StackPanel Margin="34,29,34,34">
       <TextBlock Text="Planos e histórico" FontSize="28" FontWeight="Bold" />
       <TextBlock Text="Demonstração sintética, leitura real e captura persistida são estados distintos. Nada é aplicado automaticamente. O modo de energia tem um fluxo real separado, bloqueado por padrão e condicionado à confirmação específica desta operação; esta revisão não executa nem restaura configurações."
-                 FontSize="13" Foreground="#737373" Margin="0,7,0,20" TextWrapping="Wrap" />
+                 FontSize="13" Foreground="{StaticResource Muted}" Margin="0,7,0,20" TextWrapping="Wrap" />
 
       <TabControl SelectedIndex="{Binding SelectedSectionIndex}" Background="Transparent" BorderThickness="0">
         <TabItem Header="Montar plano">
@@ -49,7 +49,7 @@
                   </StackPanel>
                 </Border>
                 <TextBlock Text="Execução e reversão reais continuam bloqueadas no aplicativo. Uma prévia ou captura não significa que a alteração foi aplicada ou verificada."
-                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,8,0,0" />
+                           FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
               </StackPanel>
             </Border>
 
@@ -72,7 +72,7 @@
                     <TextBlock Text="{Binding PowerMode.CurrentAcText}" FontSize="11" Foreground="#444444" Margin="0,5,0,0" />
                     <TextBlock Text="{Binding PowerMode.CurrentDcText}" FontSize="11" Foreground="#444444" Margin="0,3,0,0" />
                     <TextBlock Text="{Binding PowerMode.ActivePlanText}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
-                    <TextBlock Text="{Binding PowerMode.CompatibilityText}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+                    <TextBlock Text="{Binding PowerMode.CompatibilityText}" FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0" />
                   </StackPanel>
                 </Border>
                 <Grid Margin="0,0,0,8">
@@ -93,7 +93,7 @@
                   </StackPanel>
                 </Grid>
                 <TextBlock Text="Deixe um lado sem seleção para preservá-lo. Cada lado precisa de leitura suportada e captura própria."
-                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="0,0,0,9" />
+                           FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,9" />
                 <Border Background="#F7F7F5" CornerRadius="8" Padding="11" Margin="0,0,0,8">
                   <StackPanel>
                     <TextBlock Text="Consequências e consentimento específico" FontSize="12" FontWeight="Bold" />
@@ -129,7 +129,7 @@
                     <Button Content="Autorizar e aplicar agora" Command="{Binding PowerMode.ApplyCommand}"
                             IsEnabled="{Binding PowerMode.CanApply}" Style="{StaticResource PrimaryButton}"
                             HorizontalAlignment="Left" Margin="0,7,0,0" />
-                    <TextBlock Text="{Binding PowerMode.AuthorizationStatus}" FontSize="9" Foreground="#777777"
+                    <TextBlock Text="{Binding PowerMode.AuthorizationStatus}" FontSize="9" Foreground="{StaticResource Muted}"
                                TextWrapping="Wrap" Margin="0,6,0,0" />
                   </StackPanel>
                 </Border>
@@ -152,7 +152,7 @@
                   </StackPanel>
                 </Border>
                 <TextBlock Text="Nenhum setter é chamado ao iniciar, ler ou capturar. O serviço padrão nega escrita; somente o botão explícito, com consentimentos separados e frase exata, abre a política temporária desta operação."
-                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" />
+                           FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding PowerMode.StatusMessage}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
@@ -163,14 +163,14 @@
                            FontSize="11" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,12" />
                 <ComboBox ItemsSource="{Binding ProfileOptions}" SelectedItem="{Binding SelectedProfile}"
                           DisplayMemberPath="Name" Height="36" Padding="8,5" />
-                <TextBlock Text="{Binding SelectedProfile.Description}" FontSize="11" Foreground="#777777"
+                <TextBlock Text="{Binding SelectedProfile.Description}" FontSize="11" Foreground="{StaticResource Muted}"
                            TextWrapping="Wrap" Margin="0,7,0,0" />
 
                 <CheckBox Content="Incluir marcador de demonstração sintética (não é ajuste real)"
                           IsChecked="{Binding IncludeSyntheticDemo}" Margin="0,18,0,0"
                           FontSize="12" FontWeight="SemiBold" />
                 <TextBlock Text="Este exemplo usa uma plataforma fictícia Windows x64. A compatibilidade mostrada não comprova suporte a este PC."
-                           FontSize="10" Foreground="#777777" TextWrapping="Wrap" Margin="21,4,0,0" />
+                           FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="21,4,0,0" />
 
                 <Button Content="Gerar plano para revisão" Command="{Binding BuildPlanCommand}"
                         Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,17,0,0" />
@@ -204,7 +204,7 @@
                                  TextWrapping="Wrap" Margin="0,6,0,0" />
                       <TextBlock Text="{Binding Status, StringFormat=Estado: {0}}" FontSize="10" FontWeight="SemiBold"
                                  Foreground="#444444" Margin="0,8,0,0" />
-                      <TextBlock Text="{Binding Reason}" FontSize="10" Foreground="#777777"
+                      <TextBlock Text="{Binding Reason}" FontSize="10" Foreground="{StaticResource Muted}"
                                  TextWrapping="Wrap" Margin="0,3,0,0" />
                     </StackPanel>
                   </Border>
@@ -270,14 +270,14 @@
                           Padding="14" Margin="0,0,0,9">
                     <StackPanel>
                       <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" />
-                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,3,0,0" />
                       <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Leitura concluída: nenhum registro real de modo de energia foi encontrado." FontSize="10" Foreground="#777777" Margin="0,0,0,14">
+            <TextBlock Text="Leitura concluída: nenhum registro real de modo de energia foi encontrado." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,0,0,14">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
                   <Setter Property="Visibility" Value="Collapsed" />
@@ -303,14 +303,14 @@
                           Padding="14" Margin="0,0,0,9">
                     <StackPanel>
                       <TextBlock Text="{Binding StateLabel}" FontSize="9" FontWeight="Bold" />
-                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                      <TextBlock Text="{Binding Date}" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,3,0,0" />
                       <TextBlock Text="{Binding Summary}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="Nenhuma captura real foi solicitada nesta sessão." FontSize="10" Foreground="#777777"
+            <TextBlock Text="Nenhuma captura real foi solicitada nesta sessão." FontSize="10" Foreground="{StaticResource Muted}"
                        Margin="0,0,0,14">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
@@ -343,7 +343,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel>
                           <TextBlock Text="{Binding Profile}" FontSize="14" FontWeight="Bold" />
-                          <TextBlock Text="{Binding Date}" FontSize="10" Foreground="#777777" Margin="0,3,0,0" />
+                          <TextBlock Text="{Binding Date}" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,3,0,0" />
                         </StackPanel>
                         <Border Grid.Column="1" Background="#F2F2F0" CornerRadius="6" Padding="8,5"
                                 VerticalAlignment="Top">
@@ -366,7 +366,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
             <TextBlock Text="Ainda não há operações no histórico local. A demonstração só cria um registro depois da confirmação e do clique explícito."
-                       FontSize="11" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0">
+                       FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
                   <Setter Property="Visibility" Value="Collapsed" />

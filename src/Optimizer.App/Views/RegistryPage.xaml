@@ -11,7 +11,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="Registro e políticas" FontSize="27" FontWeight="Bold" />
-          <TextBlock Text="Revise uma preferência documentada e registre uma captura no histórico compartilhado." FontSize="12" Foreground="#737373" Margin="0,7,0,0" TextWrapping="Wrap" />
+          <TextBlock Text="Revise uma preferência documentada e registre uma captura no histórico compartilhado." FontSize="12" Foreground="{StaticResource Muted}" Margin="0,7,0,0" TextWrapping="Wrap" />
         </StackPanel>
         <TextBlock Grid.Column="1" Text="PREFERÊNCIA · SEM GANHO DE FPS" FontSize="9" FontWeight="Bold" Foreground="#555555" VerticalAlignment="Center" />
       </Grid>
@@ -26,7 +26,7 @@
       <Border Style="{StaticResource CardBorder}" Padding="17" Margin="0,0,0,14">
         <StackPanel>
           <TextBlock Text="Extensões de nome de arquivo" FontSize="18" FontWeight="Bold" />
-          <TextBlock Text="Preferência do Explorador de Arquivos. O mapeamento é documentado pela Microsoft, mas o valor do Registro não é uma API pública com contrato de compatibilidade para terceiros." FontSize="10" Foreground="#737373" TextWrapping="Wrap" Margin="0,5,0,13" />
+          <TextBlock Text="Preferência do Explorador de Arquivos. O mapeamento é documentado pela Microsoft, mas o valor do Registro não é uma API pública com contrato de compatibilidade para terceiros." FontSize="10" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,13" />
           <TextBlock Text="{Binding AddressText}" FontFamily="Consolas" FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,0,0,12" />
           <Grid>
             <Grid.ColumnDefinitions>
@@ -49,7 +49,7 @@
           <Border Background="#F5F5F3" CornerRadius="10" Padding="14" Margin="0,13,0,0" Visibility="{Binding HasReview, Converter={StaticResource BoolToVisibility}}">
             <StackPanel>
               <TextBlock Text="PRÉVIA BASEADA NO ESTADO REAL · SOMENTE LEITURA" FontSize="9" FontWeight="Bold" Foreground="#555555" />
-              <TextBlock Text="{Binding ReviewedAtText}" FontSize="9" Foreground="#777777" Margin="0,5,0,0" />
+              <TextBlock Text="{Binding ReviewedAtText}" FontSize="9" Foreground="{StaticResource Muted}" Margin="0,5,0,0" />
               <TextBlock FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,9,0,0">
                 <Run Text="Estado atual: " /><Run Text="{Binding CurrentStateText, Mode=OneWay}" />
               </TextBlock>
@@ -65,7 +65,7 @@
               <TextBlock Text="{Binding ManagementEvidenceText, Mode=OneWay}" FontSize="9" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0" />
               <CheckBox Content="Li e aceito registrar esta consequência e a captura" IsChecked="{Binding ConsequenceAccepted, Mode=TwoWay}"
                         FontSize="10" Margin="0,11,0,0" />
-              <TextBlock Text="{Binding CaptureNotice}" FontSize="9" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+              <TextBlock Text="{Binding CaptureNotice}" FontSize="9" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0" />
             </StackPanel>
           </Border>
           <TextBlock Text="{Binding ResultMessage}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,11,0,0" />
@@ -79,7 +79,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel>
           <TextBlock Text="Histórico do motor" FontSize="17" FontWeight="Bold" />
-          <TextBlock Text="Usa o diário compartilhado do aplicativo. A captura documenta a preferência e não é um backup restaurável do Windows." FontSize="10" Foreground="#777777" Margin="0,4,0,0" TextWrapping="Wrap" />
+          <TextBlock Text="Usa o diário compartilhado do aplicativo. A captura documenta a preferência e não é um backup restaurável do Windows." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
         <Button Grid.Column="1" Style="{StaticResource QuietButton}" Command="{Binding RefreshHistoryCommand}" Content="Atualizar histórico" />
       </Grid>
@@ -89,15 +89,15 @@
             <Border Style="{StaticResource CardBorder}" Padding="14" Margin="0,0,0,9">
               <StackPanel>
                 <TextBlock Text="{Binding State}" FontSize="11" FontWeight="Bold" />
-                <TextBlock Text="{Binding Date}" FontSize="9" Foreground="#777777" Margin="0,3,0,0" />
+                <TextBlock Text="{Binding Date}" FontSize="9" Foreground="{StaticResource Muted}" Margin="0,3,0,0" />
                 <TextBlock Text="{Binding Event}" FontSize="10" TextWrapping="Wrap" Margin="0,6,0,0" />
-                <TextBlock Text="{Binding Recovery}" FontSize="9" Foreground="#777777" TextWrapping="Wrap" Margin="0,5,0,0" />
+                <TextBlock Text="{Binding Recovery}" FontSize="9" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,5,0,0" />
               </StackPanel>
             </Border>
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
-      <TextBlock Text="Ainda não há capturas deste módulo." FontSize="10" Foreground="#777777" Margin="0,0,0,12">
+      <TextBlock Text="Ainda não há capturas deste módulo." FontSize="10" Foreground="{StaticResource Muted}" Margin="0,0,0,12">
         <TextBlock.Style>
           <Style TargetType="TextBlock">
             <Setter Property="Visibility" Value="Collapsed" />

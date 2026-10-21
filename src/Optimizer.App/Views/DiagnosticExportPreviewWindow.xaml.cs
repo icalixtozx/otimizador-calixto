@@ -18,7 +18,6 @@ public partial class DiagnosticExportPreviewWindow : Window
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         FeedbackText.Text = string.Empty;
-        string? overwriteConfirmedPath = null;
         var dialog = new SaveFileDialog
         {
             AddExtension = true,
@@ -30,55 +29,52 @@ public partial class DiagnosticExportPreviewWindow : Window
             OverwritePrompt = false,
             ValidateNames = true
         };
-        dialog.FileOk += (_, eventArgs) =>
-        {
-            string selectedPath;
-            try
-            {
-                selectedPath = Path.GetFullPath(dialog.FileName);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-            {
-                eventArgs.Cancel = true;
-                FeedbackText.Text = $"Destino inválido ({exception.GetType().Name}); nenhum arquivo foi gravado.";
-                return;
-            }
-
-            if (!File.Exists(selectedPath))
-            {
-                overwriteConfirmedPath = null;
-                return;
-            }
-
-            var confirmation = MessageBox.Show(
-                this,
-                "Este arquivo já existe. Deseja substituí-lo pelo conteúdo que está visível na prévia?",
-                "Confirmar substituição",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No);
-            if (confirmation == MessageBoxResult.Yes)
-            {
-                overwriteConfirmedPath = selectedPath;
-                return;
-            }
-
-            eventArgs.Cancel = true;
-            FeedbackText.Text = "Substituição cancelada; o arquivo existente foi preservado.";
-        };
 
         if (dialog.ShowDialog(this) != true)
         {
-            if (string.IsNullOrWhiteSpace(FeedbackText.Text))
-                FeedbackText.Text = "Salvamento cancelado; nenhum arquivo foi gravado.";
+            FeedbackText.Text = "Salvamento cancelado; nenhum arquivo foi gravado.";
             return;
         }
 
-        var destinationPath = Path.GetFullPath(dialog.FileName);
-        var result = new DiagnosticReportFileSaver().Save(
-            destinationPath,
-            ReportText.Text,
-            overwriteConfirmed: string.Equals(destinationPath, overwriteConfirmedPath, StringComparison.OrdinalIgnoreCase));
+        string destinationPath;
+        try
+        {
+            destinationPath = Path.GetFullPath(dialog.FileName);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            FeedbackText.Text = $"Destino inválido ({exception.GetType().Name}); nenhum arquivo foi gravado.";
+            return;
+        }
+
+        var saver = new DiagnosticReportFileSaver();
+        var destinationExists = File.Exists(destinationPath);
+        var overwriteConfirmed = destinationExists
+            && AppMessageDialog.Confirm(
+                this,
+                "Confirmar substituição",
+                "Este arquivo já existe. Deseja substituí-lo pelo conteúdo que está visível na prévia?");
+        if (destinationExists && !overwriteConfirmed)
+        {
+            FeedbackText.Text = "Substituição cancelada; o arquivo existente foi preservado.";
+            return;
+        }
+
+        var result = saver.Save(destinationPath, ReportText.Text, overwriteConfirmed);
+        if (result.State == DiagnosticReportSaveState.OverwriteConfirmationRequired
+            && AppMessageDialog.Confirm(
+                this,
+                "Confirmar substituição",
+                "O arquivo de destino apareceu durante o salvamento. Deseja substituí-lo pelo conteúdo que está visível na prévia?"))
+        {
+            result = saver.Save(destinationPath, ReportText.Text, overwriteConfirmed: true);
+        }
+        else if (result.State == DiagnosticReportSaveState.OverwriteConfirmationRequired)
+        {
+            FeedbackText.Text = "Substituição cancelada; o arquivo existente foi preservado.";
+            return;
+        }
+
         FeedbackText.Text = result.Message;
     }
 

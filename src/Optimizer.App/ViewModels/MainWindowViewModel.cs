@@ -26,10 +26,10 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _pageTitle = "Visão geral";
     private bool _isScanning;
 
-    public string BuildVersionLabel => "PREVIEW R5 · v0.6.0 experimental";
+    public string BuildVersionLabel => "PREVIEW R6 · v0.6.0 experimental";
     public string BuildCommitLabel => SourceCommit == "unknown" ? "commit indisponível" : $"commit {SourceCommit[..Math.Min(7, SourceCommit.Length)]}";
     public string BuildCommitFull => SourceCommit == "unknown" ? "Commit de origem não registrado nos metadados deste executável." : SourceCommit;
-    public string WindowTitle => $"Calixto Optimizer · Preview R5 · {BuildCommitLabel}";
+    public string WindowTitle => $"Calixto Optimizer · Preview R6 · {BuildCommitLabel}";
 
     public MainWindowViewModel(IComputerInventoryService computerInventoryService, IDriverInventoryService driverInventoryService, IPowerPlanInventoryService powerPlanInventoryService)
     {

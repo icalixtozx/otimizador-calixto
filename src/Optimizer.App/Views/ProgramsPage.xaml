@@ -11,7 +11,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="Programas pós-formatação" FontSize="27" FontWeight="Bold" />
-          <TextBlock Text="Selecione vários pacotes do catálogo revisado, confira a operação e veja o que foi identificado localmente." FontSize="12" Foreground="#737373" Margin="0,7,0,0" />
+          <TextBlock Text="Selecione vários pacotes do catálogo revisado, confira a operação e veja o que foi identificado localmente." FontSize="12" Foreground="{StaticResource Muted}" Margin="0,7,0,0" />
         </StackPanel>
         <Button Grid.Column="1" Style="{StaticResource QuietButton}" Command="{Binding RefreshInstalledCommand}" VerticalAlignment="Center">
           <TextBlock Text="Ler programas instalados" />
@@ -58,14 +58,14 @@
                 <StackPanel Grid.Column="1">
                   <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="Bold" />
-                    <TextBlock Text="  ·  " FontSize="12" Foreground="#888888" />
+                    <TextBlock Text="  ·  " FontSize="12" Foreground="{StaticResource Muted}" />
                     <TextBlock Text="{Binding Publisher}" FontSize="11" Foreground="#666666" VerticalAlignment="Center" />
                   </StackPanel>
                   <TextBlock Text="{Binding PackageId}" FontSize="10" FontFamily="Consolas" Foreground="#555555" Margin="0,4,0,0" />
                   <TextBlock Text="{Binding SourceLabel}" FontSize="10" Foreground="#555555" TextWrapping="Wrap" Margin="0,5,0,0" />
-                  <TextBlock Text="{Binding LicenseLabel}" FontSize="9" Foreground="#777777" TextWrapping="Wrap" Margin="0,4,0,0" />
+                  <TextBlock Text="{Binding LicenseLabel}" FontSize="9" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0" />
                   <TextBlock Text="{Binding InstalledLabel}" FontSize="10" FontWeight="SemiBold" Margin="0,8,0,0" />
-                  <TextBlock Text="{Binding InstalledDetails}" FontSize="9" Foreground="#777777" TextWrapping="Wrap" Margin="0,3,0,0" />
+                  <TextBlock Text="{Binding InstalledDetails}" FontSize="9" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,3,0,0" />
                 </StackPanel>
                 <TextBlock Grid.Column="2" Text="CATÁLOGO" FontSize="8" FontWeight="Bold" Foreground="#555555" VerticalAlignment="Top" />
               </Grid>

@@ -12,6 +12,7 @@ using Optimizer.Windows;
 using System.IO;
 using System.Net;
 using System.IO.Compression;
+using System.Xml.Linq;
 
 if (args.Length == 1 && args[0] == "--windows-registry-integration")
 {
@@ -54,6 +55,7 @@ if (args.Length == 1 && args[0] == "--diagnostic-export-save-readonly")
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("shared WPF theme pins readable contrast for controls, selection, disabled states, and dialogs", () => RunSync(SharedThemePinsReadableControlStates)),
     ("Windows 11 identity prefers matching CIM and build over stale ProductName", () => RunSync(Windows11IdentityUsesCimAndBuild)),
     ("Windows 10 identity uses caption, NT version, and build", () => RunSync(Windows10IdentityUsesBuild)),
     ("Windows identity marks conflicting caption and build as ambiguous", () => RunSync(WindowsIdentityMarksConflictingSources)),
@@ -210,6 +212,126 @@ static Task RunSync(Action action)
 {
     action();
     return Task.CompletedTask;
+}
+
+static void SharedThemePinsReadableControlStates()
+{
+    var repositoryRoot = FindRepositoryRoot();
+    XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+    XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+    var appXaml = XDocument.Load(Path.Combine(repositoryRoot, "src", "Optimizer.App", "App.xaml"));
+    var resources = appXaml.Root?.Element(presentation + "Application.Resources")
+        ?? throw new InvalidOperationException("Application.Resources was not found in App.xaml.");
+    var styles = resources.Elements(presentation + "Style").ToArray();
+
+    XElement? FindStyle(string targetType, string? key = null) => styles.FirstOrDefault(style =>
+        string.Equals((string?)style.Attribute("TargetType"), targetType, StringComparison.Ordinal)
+        && string.Equals((string?)style.Attribute(xaml + "Key"), key, StringComparison.Ordinal));
+
+    var textBlockStyle = FindStyle("TextBlock")
+        ?? throw new InvalidOperationException("Implicit TextBlock style is missing.");
+    Assert(!textBlockStyle.Elements(presentation + "Setter").Any(setter =>
+            string.Equals((string?)setter.Attribute("Property"), "Foreground", StringComparison.Ordinal)),
+        "TextBlock default style must inherit foreground from dark/light parent surfaces.");
+
+    foreach (var targetType in new[]
+             {
+                 "Button", "TextBox", "ComboBox", "ComboBoxItem", "ListBox", "ListBoxItem",
+                 "CheckBox", "RadioButton", "TabControl", "TabItem", "DataGrid", "DataGridRow",
+                 "DataGridCell", "ToolTip", "ContextMenu", "MenuItem"
+             })
+        Assert(FindStyle(targetType) is not null, $"implicit theme style missing for {targetType}");
+
+    var brushes = resources.Elements(presentation + "SolidColorBrush")
+        .Where(brush => (string?)brush.Attribute(xaml + "Key") is { } key && !key.StartsWith("{", StringComparison.Ordinal))
+        .ToDictionary(brush => (string)brush.Attribute(xaml + "Key")!, brush => (string)brush.Attribute("Color")!, StringComparer.Ordinal);
+    Assert(ContrastRatio(brushes["Ink"], brushes["Paper"]) >= 4.5, "primary text must contrast with the paper surface");
+    Assert(ContrastRatio(brushes["Muted"], brushes["Paper"]) >= 4.5, "muted text must remain readable on paper");
+    Assert(ContrastRatio(brushes["DisabledInk"], brushes["DisabledSurface"]) >= 4.5, "disabled text must remain readable");
+    Assert(ContrastRatio(brushes["SelectedText"], brushes["SelectedSurface"]) >= 4.5, "selected text must contrast with selection fill");
+
+    var systemColorKeys = resources.Elements(presentation + "SolidColorBrush")
+        .Select(brush => (string?)brush.Attribute(xaml + "Key") ?? string.Empty)
+        .ToArray();
+    foreach (var key in new[] { "WindowBrushKey", "WindowTextBrushKey", "ControlBrushKey", "ControlTextBrushKey", "HighlightBrushKey", "HighlightTextBrushKey", "GrayTextBrushKey" })
+        Assert(systemColorKeys.Any(value => value.Contains(key, StringComparison.Ordinal)), $"WPF system color {key} should be pinned by the app palette");
+
+    foreach (var key in new[] { "QuietButton", "PrimaryButton" })
+    {
+        var style = FindStyle("Button", key) ?? throw new InvalidOperationException($"{key} style is missing.");
+        var disabled = style.Descendants(presentation + "Trigger").FirstOrDefault(trigger =>
+            string.Equals((string?)trigger.Attribute("Property"), "IsEnabled", StringComparison.Ordinal)
+            && string.Equals((string?)trigger.Attribute("Value"), "False", StringComparison.Ordinal));
+        Assert(disabled is not null, $"{key} needs an explicit disabled state");
+        Assert(disabled!.Elements(presentation + "Setter").Any(setter => string.Equals((string?)setter.Attribute("Property"), "Foreground", StringComparison.Ordinal)),
+            $"{key} disabled state needs an explicit foreground");
+        Assert(disabled.Elements(presentation + "Setter").Any(setter => string.Equals((string?)setter.Attribute("Property"), "Background", StringComparison.Ordinal)),
+            $"{key} disabled state needs an explicit background");
+        Assert(!disabled.Elements(presentation + "Setter").Any(setter => string.Equals((string?)setter.Attribute("Property"), "Opacity", StringComparison.Ordinal)),
+            $"{key} must not make disabled labels unreadable by fading the whole button");
+    }
+
+    foreach (var targetType in new[] { "ComboBoxItem", "ListBoxItem", "TabItem", "DataGridRow", "DataGridCell" })
+    {
+        var style = FindStyle(targetType) ?? throw new InvalidOperationException($"{targetType} style is missing.");
+        var selected = style.Descendants(presentation + "Trigger").FirstOrDefault(trigger =>
+            string.Equals((string?)trigger.Attribute("Property"), "IsSelected", StringComparison.Ordinal)
+            && string.Equals((string?)trigger.Attribute("Value"), "True", StringComparison.Ordinal));
+        Assert(selected is not null, $"{targetType} needs a deterministic selected state");
+        Assert(selected!.Elements(presentation + "Setter").Any(setter => string.Equals((string?)setter.Attribute("Property"), "Foreground", StringComparison.Ordinal)),
+            $"{targetType} selected state needs an explicit foreground");
+        Assert(selected.Elements(presentation + "Setter").Any(setter => string.Equals((string?)setter.Attribute("Property"), "Background", StringComparison.Ordinal)),
+            $"{targetType} selected state needs an explicit background");
+    }
+
+    var previewXaml = XDocument.Load(Path.Combine(repositoryRoot, "src", "Optimizer.App", "Views", "DiagnosticExportPreviewWindow.xaml"));
+    var previewWindow = previewXaml.Root ?? throw new InvalidOperationException("Diagnostic preview Window was not found.");
+    Assert((string?)previewWindow.Attribute("Foreground") == "{StaticResource Ink}", "diagnostic preview dialog must pin its foreground");
+    Assert(previewWindow.Descendants(presentation + "TextBox").Any(input =>
+            (string?)input.Attribute("Foreground") == "{StaticResource Ink}"
+            && (string?)input.Attribute("Background") == "{StaticResource Paper}"),
+        "diagnostic preview text field must have explicit contrasting colors");
+
+    var messageDialogXaml = XDocument.Load(Path.Combine(repositoryRoot, "src", "Optimizer.App", "Views", "AppMessageDialog.xaml"));
+    var messageDialog = messageDialogXaml.Root ?? throw new InvalidOperationException("Themed message dialog Window was not found.");
+    Assert((string?)messageDialog.Attribute("Foreground") == "{StaticResource Ink}"
+           && (string?)messageDialog.Attribute("Background") == "{StaticResource Canvas}",
+        "in-app information and overwrite dialogs must use the shared palette");
+    Assert(messageDialog.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Style") == "{StaticResource SecondaryButton}")
+           && messageDialog.Descendants(presentation + "Button").Any(button => (string?)button.Attribute("Style") == "{StaticResource PrimaryButton}"),
+        "themed dialog must retain explicit readable confirm and cancel actions");
+
+    static double ContrastRatio(string foreground, string background)
+    {
+        static double Luminance(string color)
+        {
+            var red = Convert.ToInt32(color.Substring(1, 2), 16) / 255d;
+            var green = Convert.ToInt32(color.Substring(3, 2), 16) / 255d;
+            var blue = Convert.ToInt32(color.Substring(5, 2), 16) / 255d;
+            static double Linearize(double channel) => channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
+            return 0.2126 * Linearize(red) + 0.7152 * Linearize(green) + 0.0722 * Linearize(blue);
+        }
+
+        var first = Luminance(foreground);
+        var second = Luminance(background);
+        return (Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05);
+    }
+}
+
+static string FindRepositoryRoot()
+{
+    foreach (var startingPath in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+    {
+        var directory = new DirectoryInfo(Path.GetFullPath(startingPath));
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "CalixtoOptimizer.sln")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+    }
+
+    throw new DirectoryNotFoundException("Could not locate CalixtoOptimizer.sln for shared-theme regression checks.");
 }
 
 static void Windows11IdentityUsesCimAndBuild()
